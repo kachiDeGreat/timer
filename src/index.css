@@ -1,0 +1,806 @@
+/* =========================================================
+   STAGE TIMER — Material Broadcast Design System
+   ========================================================= */
+
+:root {
+  --md-bg: #121212;
+  --md-surface: #1e1e1e;
+  --md-surface-2: #252525;
+  --md-border: #333333;
+  --md-border-focus: #4f4f4f;
+
+  --md-text-primary: #ffffff;
+  --md-text-secondary: #a0a0a0;
+  --md-text-tertiary: #6b6b6b;
+
+  --md-primary: #1976d2;
+  --md-primary-hover: #1565c0;
+  --md-blue-stage: #38bdf8;
+  --md-white-stage: #ffffff;
+
+  --md-warning: #f59e0b;
+  --md-warning-hover: #d97706;
+
+  --md-danger: #ef4444;
+  --md-danger-dark: #b91c1c;
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  background-color: var(--md-bg);
+  color: var(--md-text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================
+   Control Surface — Single Screen Layout (No Scrollbars)
+   ========================================================= */
+
+.surface-viewport {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--md-bg);
+  overflow: hidden;
+}
+
+/* Material Top Bar */
+.material-topbar {
+  height: 52px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1.25rem;
+  background-color: var(--md-surface);
+  border-bottom: 1px solid var(--md-border);
+  flex-shrink: 0;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--md-text-primary);
+}
+
+.status-chip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.5rem;
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: var(--md-text-secondary);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Main Grid Layout */
+.surface-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 1rem;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+/* Material Cards */
+.material-card {
+  background-color: var(--md-surface);
+  border: 1px solid var(--md-border);
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--md-text-secondary);
+}
+
+.card-meta {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--md-text-tertiary);
+}
+
+/* Preview Column */
+.preview-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.preview-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.preview-screen-box {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background-color: #000000;
+  border-radius: 4px;
+  border: 1px solid var(--md-border);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Master Transport Controls Card */
+.transport-card {
+  flex-shrink: 0;
+}
+
+.transport-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 0.75rem;
+}
+
+/* Material Buttons */
+.material-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+}
+
+.material-btn:active {
+  transform: translateY(1px);
+}
+
+.material-btn.full-width {
+  width: 100%;
+}
+
+.btn-primary {
+  background-color: var(--md-primary);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background-color: var(--md-primary-hover);
+}
+
+.btn-warning {
+  background-color: var(--md-warning);
+  color: #000000;
+  font-weight: 700;
+}
+
+.btn-warning:hover {
+  background-color: var(--md-warning-hover);
+}
+
+.btn-neutral {
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  color: var(--md-text-primary);
+}
+
+.btn-neutral:hover:not(:disabled) {
+  background-color: #333333;
+}
+
+.btn-neutral:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  color: var(--md-text-primary);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+}
+
+.btn-secondary:hover {
+  background-color: #303030;
+}
+
+/* =========================================================
+   Staged Small Box & Add/Remove Accordion Styles
+   ========================================================= */
+
+.staged-small-box {
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  padding: 0.55rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.small-box-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.small-box-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--md-text-tertiary);
+}
+
+.small-box-digits {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.small-box-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.small-box-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 4px;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.small-box-action-btn:active {
+  transform: translateY(1px);
+}
+
+.btn-load-ready {
+  background-color: rgba(30, 58, 138, 0.7);
+  border: 1px solid #3b82f6;
+  color: #bfdbfe;
+}
+
+.btn-load-ready:hover {
+  background-color: #1d4ed8;
+  color: #ffffff;
+}
+
+.btn-start-live {
+  background-color: #10b981;
+  color: #ffffff;
+}
+
+.btn-start-live:hover {
+  background-color: #059669;
+}
+
+.small-box-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.95rem;
+  border-radius: 4px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  background-color: #10b981;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.small-box-play-btn:hover {
+  background-color: #059669;
+}
+
+.small-box-play-btn:active {
+  transform: translateY(1px);
+}
+
+.btn-blackout-active {
+  background-color: #7f1d1d !important;
+  border-color: #ef4444 !important;
+  color: #fecaca !important;
+}
+
+.blackout-preview-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.blackout-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.blackout-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Add theme */
+.staged-small-box.add-theme {
+  border-color: rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.08);
+}
+
+.staged-small-box.add-theme .small-box-digits {
+  color: #34d399;
+}
+
+.small-box-play-btn.add-btn {
+  background-color: #10b981;
+}
+
+.small-box-play-btn.add-btn:hover {
+  background-color: #059669;
+}
+
+/* Subtract theme */
+.staged-small-box.sub-theme {
+  border-color: rgba(239, 68, 68, 0.4);
+  background-color: rgba(239, 68, 68, 0.08);
+}
+
+.staged-small-box.sub-theme .small-box-digits {
+  color: #f87171;
+}
+
+.small-box-play-btn.sub-btn {
+  background-color: #ef4444;
+}
+
+.small-box-play-btn.sub-btn:hover {
+  background-color: #dc2626;
+}
+
+/* Accordion Tab Bar */
+.accordion-card {
+  padding: 0.75rem 1rem;
+}
+
+.accordion-tab-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.accordion-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem;
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: var(--md-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.accordion-tab-btn:hover {
+  background-color: #303030;
+  color: #ffffff;
+}
+
+.accordion-tab-btn.active {
+  background-color: #333333;
+  border-color: #666666;
+  color: #ffffff;
+}
+
+.accordion-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.time-input-pair.compact {
+  padding: 0.4rem 0.75rem;
+  gap: 0.4rem;
+}
+
+.time-input-pair.compact input {
+  width: 58px;
+  font-size: 1.25rem;
+  padding: 0.15rem;
+}
+
+.time-input-pair.compact .colon {
+  font-size: 1.25rem;
+  margin-top: 0.6rem;
+}
+
+.quick-chips-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.chip-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: var(--md-text-primary);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.chip-btn:hover {
+  background-color: #383838;
+}
+
+/* Status Chips */
+.chip-running {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: #10b981 !important;
+  color: #34d399 !important;
+}
+
+.chip-paused {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
+}
+
+.chip-finished {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+/* Control Column (Right side) */
+.control-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Queue Form */
+.queue-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.time-input-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  padding: 0.75rem;
+}
+
+.input-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.input-field label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--md-text-tertiary);
+}
+
+.input-field input {
+  width: 76px;
+  background-color: #121212;
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 0.2rem;
+  outline: none;
+}
+
+.input-field input:focus {
+  border-color: var(--md-primary);
+}
+
+.colon {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--md-text-tertiary);
+  margin-top: 0.8rem;
+}
+
+/* Presets */
+.presets-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sub-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--md-text-tertiary);
+}
+
+.presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.preset-chip {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: var(--md-text-primary);
+  cursor: pointer;
+}
+
+.preset-chip:hover {
+  background-color: #333333;
+}
+
+.preset-chip.active {
+  background-color: #1976d2;
+  border-color: #1976d2;
+  color: #ffffff;
+}
+
+/* Color Toggle */
+.color-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.color-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.5rem;
+  background-color: var(--md-surface-2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  color: var(--md-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.color-toggle-btn.active {
+  border-color: #ffffff;
+  color: #ffffff;
+  background-color: #2e2e2e;
+}
+
+.swatch-circle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.swatch-white {
+  background-color: #ffffff;
+}
+
+.swatch-blue {
+  background-color: var(--md-blue-stage);
+}
+
+.card-note {
+  font-size: 0.7rem;
+  color: var(--md-text-tertiary);
+  margin-top: 0.25rem;
+}
+
+/* =========================================================
+   STAGE PROJECTOR DISPLAY (CLEAN, NO DECORATION)
+   ========================================================= */
+
+.stage-screen-root {
+  width: 100%;
+  height: 100%;
+  background-color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+/* Standalone window styles */
+.stage-screen-root.is-projector-window {
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+/* Digits container */
+.stage-digits-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 2vw;
+}
+
+/* Massive, Bold Standard MM:SS Digits (A Lot Bigger for TV Display) */
+.stage-digits {
+  font-family: var(--font-family);
+  font-size: clamp(8rem, 36vw, 55vh);
+  font-weight: 950;
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-shadow: none !important;
+}
+
+/* Color schemes: White vs Blue */
+.color-white .stage-digits {
+  color: #ffffff;
+}
+
+.color-blue .stage-digits {
+  color: var(--md-blue-stage);
+}
+
+/* In preview box, scale digits properly */
+.is-preview .stage-digits {
+  font-size: clamp(2.5rem, 9vw, 4.5rem);
+}
+
+/* =========================================================
+   TIME UP SEQUENCE: PURE RED BACKGROUND & NO SHADOWS
+   ========================================================= */
+
+/* Background changes from black to PURE RED */
+.stage-screen-root.status-finished,
+.stage-screen-root.status-finished .timeup-container {
+  background-color: #ff0000 !important;
+}
+
+.timeup-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #ff0000;
+  padding: 0 4vw;
+  box-shadow: none !important;
+}
+
+/* Phase 1: Heartbeat pulse TIME UP text (White text on Pure Red background) */
+.timeup-text {
+  font-family: var(--font-family);
+  font-size: clamp(6rem, 28vw, 42vh);
+  font-weight: 950;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-shadow: none !important;
+  animation: timeUpHeartbeat 0.55s infinite ease-in-out;
+}
+
+.is-preview .timeup-text {
+  font-size: clamp(2.2rem, 8vw, 3.8rem);
+}
+
+@keyframes timeUpHeartbeat {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Phase 2: Static Big Text "PLEASE CONCLUDE NOW" (NOT a slider) */
+.conclude-text {
+  font-family: var(--font-family);
+  font-size: clamp(3.5rem, 15vw, 24vh);
+  font-weight: 950;
+  color: #ffffff;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: none !important;
+}
+
+.is-preview .conclude-text {
+  font-size: clamp(1.2rem, 4vw, 2rem);
+}
