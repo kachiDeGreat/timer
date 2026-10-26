@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { ProjectorDisplay } from './ProjectorDisplay';
 import { launchProjectorWindow } from '../utils/screen';
+import { formatTime } from '../utils/time';
 import {
   Play,
   Pause,
@@ -31,14 +32,18 @@ export const ControlSurface: React.FC = () => {
     setColorScheme,
   } = useTimer();
 
-  // Queue form inputs
+  // Queue form inputs: Hours, Minutes, Seconds
+  const [inputHours, setInputHours] = useState<number>(state.queuedHours || 0);
   const [inputMins, setInputMins] = useState<number>(state.queuedMinutes || 10);
   const [inputSecs, setInputSecs] = useState<number>(state.queuedSeconds || 0);
 
   // Accordion state: 'add' | 'subtract'
   const [accordionMode, setAccordionMode] = useState<'add' | 'subtract'>('add');
+  const [addHours, setAddHours] = useState<number>(0);
   const [addMins, setAddMins] = useState<number>(2);
   const [addSecs, setAddSecs] = useState<number>(30);
+
+  const [subHours, setSubHours] = useState<number>(0);
   const [subMins, setSubMins] = useState<number>(1);
   const [subSecs, setSubSecs] = useState<number>(0);
 
@@ -46,34 +51,54 @@ export const ControlSurface: React.FC = () => {
   const isPaused = state.status === 'paused';
 
   // Apply preset to queue
-  const applyPreset = (minutes: number) => {
-    setInputMins(minutes);
-    setInputSecs(0);
-    queueTime(minutes, 0);
+  const applyPreset = (h: number, m: number, s: number) => {
+    setInputHours(h);
+    setInputMins(m);
+    setInputSecs(s);
+    queueTime(h, m, s);
   };
 
   // Submit queue form
   const handleQueueSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    queueTime(inputMins, inputSecs);
+    queueTime(inputHours, inputMins, inputSecs);
   };
 
   // Quick chips for Add / Subtract
-  const handleAddChip = (mins: number, secs: number) => {
-    setAddMins(mins);
-    setAddSecs(secs);
+  const handleAddChip = (h: number, m: number, s: number) => {
+    setAddHours(h);
+    setAddMins(m);
+    setAddSecs(s);
   };
 
-  const handleSubChip = (mins: number, secs: number) => {
-    setSubMins(mins);
-    setSubSecs(secs);
+  const handleSubChip = (h: number, m: number, s: number) => {
+    setSubHours(h);
+    setSubMins(m);
+    setSubSecs(s);
   };
 
-  const presets = [1, 2, 5, 10, 15, 20, 30, 45, 60];
+  // Presets including minute and hour options
+  const presets = [
+    { label: '5m', h: 0, m: 5, s: 0 },
+    { label: '10m', h: 0, m: 10, s: 0 },
+    { label: '15m', h: 0, m: 15, s: 0 },
+    { label: '20m', h: 0, m: 20, s: 0 },
+    { label: '30m', h: 0, m: 30, s: 0 },
+    { label: '45m', h: 0, m: 45, s: 0 },
+    { label: '1h', h: 1, m: 0, s: 0 },
+    { label: '1h 30m', h: 1, m: 30, s: 0 },
+    { label: '2h', h: 2, m: 0, s: 0 },
+  ];
 
-  const queuedDisplay = `${String(state.queuedMinutes).padStart(2, '0')}:${String(state.queuedSeconds).padStart(2, '0')}`;
-  const addDisplay = `+${String(addMins).padStart(2, '0')}:${String(addSecs).padStart(2, '0')}`;
-  const subDisplay = `-${String(subMins).padStart(2, '0')}:${String(subSecs).padStart(2, '0')}`;
+  // Calculate formatted display strings: MM:SS under 60m, HH:MM:SS for 1h+
+  const queuedTotalSecs = (state.queuedHours || 0) * 3600 + (state.queuedMinutes || 0) * 60 + (state.queuedSeconds || 0);
+  const queuedDisplay = formatTime(queuedTotalSecs).text;
+
+  const addTotalSecs = addHours * 3600 + addMins * 60 + addSecs;
+  const addDisplay = `+${formatTime(addTotalSecs).text}`;
+
+  const subTotalSecs = subHours * 3600 + subMins * 60 + subSecs;
+  const subDisplay = `-${formatTime(subTotalSecs).text}`;
 
   return (
     <div className="surface-viewport">
@@ -118,7 +143,7 @@ export const ControlSurface: React.FC = () => {
             <div className="card-header">
               <span className="card-label">PROJECTOR PREVIEW</span>
               <span className="card-meta">
-                {state.lastAction || 'Standard MM:SS'}
+                {state.lastAction || 'Standard Time Display'}
               </span>
             </div>
 
@@ -189,26 +214,42 @@ export const ControlSurface: React.FC = () => {
 
         {/* Right Column: Queue, Small Box & Add/Subtract Accordion */}
         <aside className="control-column">
-          {/* Queue Time Card */}
-          <div className="control-column">
+          {/* Queue Time Card (with Hours : Minutes : Seconds) */}
+          <div className="material-card">
             <div className="card-header">
-              <span className="card-label">QUEUE TIME</span>
+              <span className="card-label">QUEUE TIME (HH:MM:SS)</span>
             </div>
 
             <form onSubmit={handleQueueSubmit} className="queue-form">
-              <div className="time-input-pair">
+              <div className="time-input-pair three-fields">
+                <div className="input-field">
+                  <label htmlFor="input-hours">HOURS</label>
+                  <input
+                    id="input-hours"
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={inputHours}
+                    onChange={(e) => {
+                      const v = Math.max(0, parseInt(e.target.value) || 0);
+                      setInputHours(v);
+                      queueTime(v, inputMins, inputSecs);
+                    }}
+                  />
+                </div>
+                <span className="colon">:</span>
                 <div className="input-field">
                   <label htmlFor="input-minutes">MINUTES</label>
                   <input
                     id="input-minutes"
                     type="number"
                     min="0"
-                    max="999"
+                    max="59"
                     value={inputMins}
                     onChange={(e) => {
-                      const v = Math.max(0, parseInt(e.target.value) || 0);
+                      const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                       setInputMins(v);
-                      queueTime(v, inputSecs);
+                      queueTime(inputHours, v, inputSecs);
                     }}
                   />
                 </div>
@@ -224,7 +265,7 @@ export const ControlSurface: React.FC = () => {
                     onChange={(e) => {
                       const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                       setInputSecs(v);
-                      queueTime(inputMins, v);
+                      queueTime(inputHours, inputMins, v);
                     }}
                   />
                 </div>
@@ -235,16 +276,22 @@ export const ControlSurface: React.FC = () => {
             <div className="presets-block">
               <span className="sub-label">QUICK PRESETS</span>
               <div className="presets-row">
-                {presets.map((mins) => (
-                  <button
-                    key={mins}
-                    type="button"
-                    className={`preset-chip ${state.queuedMinutes === mins && state.queuedSeconds === 0 ? 'active' : ''}`}
-                    onClick={() => applyPreset(mins)}
-                  >
-                    {mins}m
-                  </button>
-                ))}
+                {presets.map((p) => {
+                  const isActive =
+                    (state.queuedHours || 0) === p.h &&
+                    state.queuedMinutes === p.m &&
+                    state.queuedSeconds === p.s;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className={`preset-chip ${isActive ? 'active' : ''}`}
+                      onClick={() => applyPreset(p.h, p.m, p.s)}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -258,7 +305,7 @@ export const ControlSurface: React.FC = () => {
                 <button
                   type="button"
                   className="small-box-action-btn btn-load-ready"
-                  onClick={() => loadQueueToStage()}
+                  onClick={() => loadQueueToStage(inputHours, inputMins, inputSecs)}
                   title="Display this time on the stage screen in Ready state (waiting for speaker to start)"
                   id="btn-load-ready"
                 >
@@ -304,15 +351,26 @@ export const ControlSurface: React.FC = () => {
             {/* ADD MODE CONTENT */}
             {accordionMode === 'add' && (
               <div className="accordion-content">
-                <div className="time-input-pair compact">
+                <div className="time-input-pair compact three-fields">
+                  <div className="input-field">
+                    <label>HRS</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="99"
+                      value={addHours}
+                      onChange={(e) => setAddHours(Math.max(0, parseInt(e.target.value) || 0))}
+                    />
+                  </div>
+                  <span className="colon">:</span>
                   <div className="input-field">
                     <label>MIN</label>
                     <input
                       type="number"
                       min="0"
-                      max="99"
+                      max="59"
                       value={addMins}
-                      onChange={(e) => setAddMins(Math.max(0, parseInt(e.target.value) || 0))}
+                      onChange={(e) => setAddMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
                     />
                   </div>
                   <span className="colon">:</span>
@@ -329,10 +387,11 @@ export const ControlSurface: React.FC = () => {
                 </div>
 
                 <div className="quick-chips-row">
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 30)}>+30s</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(1, 0)}>+1m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(2, 30)}>+2m 30s</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(5, 0)}>+5m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 1, 0)}>+1m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 5, 0)}>+5m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 15, 0)}>+15m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 30, 0)}>+30m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(1, 0, 0)}>+1h</button>
                 </div>
 
                 {/* SMALL BOX FOR ADD */}
@@ -344,7 +403,7 @@ export const ControlSurface: React.FC = () => {
                   <button
                     type="button"
                     className="small-box-play-btn add-btn"
-                    onClick={() => addTimeToLive(addMins, addSecs)}
+                    onClick={() => addTimeToLive(addHours, addMins, addSecs)}
                     title="Add this duration to the active timer"
                     id="btn-play-add"
                   >
@@ -358,15 +417,26 @@ export const ControlSurface: React.FC = () => {
             {/* SUBTRACT MODE CONTENT */}
             {accordionMode === 'subtract' && (
               <div className="accordion-content">
-                <div className="time-input-pair compact">
+                <div className="time-input-pair compact three-fields">
+                  <div className="input-field">
+                    <label>HRS</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="99"
+                      value={subHours}
+                      onChange={(e) => setSubHours(Math.max(0, parseInt(e.target.value) || 0))}
+                    />
+                  </div>
+                  <span className="colon">:</span>
                   <div className="input-field">
                     <label>MIN</label>
                     <input
                       type="number"
                       min="0"
-                      max="99"
+                      max="59"
                       value={subMins}
-                      onChange={(e) => setSubMins(Math.max(0, parseInt(e.target.value) || 0))}
+                      onChange={(e) => setSubMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
                     />
                   </div>
                   <span className="colon">:</span>
@@ -383,10 +453,11 @@ export const ControlSurface: React.FC = () => {
                 </div>
 
                 <div className="quick-chips-row">
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 30)}>-30s</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(1, 0)}>-1m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(2, 0)}>-2m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(5, 0)}>-5m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 1, 0)}>-1m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 5, 0)}>-5m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 15, 0)}>-15m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 30, 0)}>-30m</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(1, 0, 0)}>-1h</button>
                 </div>
 
                 {/* SMALL BOX FOR SUBTRACT */}
@@ -398,7 +469,7 @@ export const ControlSurface: React.FC = () => {
                   <button
                     type="button"
                     className="small-box-play-btn sub-btn"
-                    onClick={() => subtractTimeFromLive(subMins, subSecs)}
+                    onClick={() => subtractTimeFromLive(subHours, subMins, subSecs)}
                     title="Subtract this duration from the active timer"
                     id="btn-play-subtract"
                   >

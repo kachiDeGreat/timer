@@ -1,26 +1,27 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_TIMER_STATE } from '../types/timer';
 import type { TimerState, StageColor } from '../types/timer';
+import { formatTime } from '../utils/time';
 
 const STORAGE_KEY = 'STAGE_TIMER_STATE_V2';
 const CHANNEL_NAME = 'STAGE_TIMER_SYNC_CHANNEL';
 
 interface TimerContextValue {
   state: TimerState;
-  queueTime: (minutes: number, seconds?: number) => void;
+  queueTime: (hours: number, minutes: number, seconds?: number) => void;
   startWithQueued: () => void;
   pushQueueToLive: () => void;
-  loadQueueToStage: (minutes?: number, seconds?: number) => void;
+  loadQueueToStage: (hours?: number, minutes?: number, seconds?: number) => void;
   toggleBlackout: () => void;
   toggleRunPause: () => void;
   pause: () => void;
   resume: () => void;
   stop: () => void;
   reset: () => void;
-  addTimeToLive: (minutes: number, seconds?: number) => void;
-  subtractTimeFromLive: (minutes: number, seconds?: number) => void;
+  addTimeToLive: (hours: number, minutes: number, seconds?: number) => void;
+  subtractTimeFromLive: (hours: number, minutes: number, seconds?: number) => void;
   adjustRemainingTime: (deltaSeconds: number) => void;
-  setLiveDuration: (minutes: number, seconds?: number) => void;
+  setLiveDuration: (hours: number, minutes: number, seconds?: number) => void;
   setColorScheme: (color: StageColor) => void;
 }
 
@@ -36,11 +37,16 @@ function loadInitialState(): TimerState {
         return {
           ...DEFAULT_TIMER_STATE,
           ...parsed,
+          queuedHours: parsed.queuedHours || 0,
           remainingSeconds: remaining,
           status: remaining > 0 ? 'running' : 'finished',
         };
       }
-      return { ...DEFAULT_TIMER_STATE, ...parsed };
+      return {
+        ...DEFAULT_TIMER_STATE,
+        ...parsed,
+        queuedHours: parsed.queuedHours || 0,
+      };
     }
   } catch (e) {
     console.warn('Failed to parse timer state:', e);
@@ -143,23 +149,25 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(timerInterval);
   }, [updateStateAndBroadcast]);
 
-  // Actions
-  const queueTime = useCallback((minutes: number, seconds: number = 0) => {
-    const clampedMins = Math.max(0, Math.min(999, minutes));
+  // Queue time supporting Hours, Minutes, Seconds
+  const queueTime = useCallback((hours: number, minutes: number, seconds: number = 0) => {
+    const clampedHrs = Math.max(0, Math.min(99, hours));
+    const clampedMins = Math.max(0, Math.min(59, minutes));
     const clampedSecs = Math.max(0, Math.min(59, seconds));
     updateStateAndBroadcast((prev) => ({
       ...prev,
+      queuedHours: clampedHrs,
       queuedMinutes: clampedMins,
       queuedSeconds: clampedSecs,
       lastUpdated: Date.now(),
-      lastAction: `Queued ${String(clampedMins).padStart(2, '0')}:${String(clampedSecs).padStart(2, '0')}`,
+      lastAction: `Queued ${clampedHrs > 0 ? String(clampedHrs).padStart(2, '0') + ':' : ''}${String(clampedMins).padStart(2, '0')}:${String(clampedSecs).padStart(2, '0')}`,
     }));
   }, [updateStateAndBroadcast]);
 
   // Push the currently queued time directly to the live projection and run/jump
   const pushQueueToLive = useCallback(() => {
     const current = stateRef.current;
-    const total = current.queuedMinutes * 60 + current.queuedSeconds;
+    const total = (current.queuedHours || 0) * 3600 + (current.queuedMinutes || 0) * 60 + (current.queuedSeconds || 0);
     const validTotal = total > 0 ? total : 600;
     const now = Date.now();
 
@@ -171,21 +179,23 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       targetEndTime: now + validTotal * 1000,
       isBlackout: false,
       lastUpdated: now,
-      lastAction: `Jumped to ${String(Math.floor(validTotal / 60)).padStart(2, '0')}:${String(validTotal % 60).padStart(2, '0')}`,
+      lastAction: `Jumped to ${formatTime(validTotal).text}`,
     }));
   }, [updateStateAndBroadcast]);
 
   // Load the queued time onto the stage display in idle / ready mode (waiting for speaker to speak)
-  const loadQueueToStage = useCallback((minutes?: number, seconds?: number) => {
+  const loadQueueToStage = useCallback((hours?: number, minutes?: number, seconds?: number) => {
     const current = stateRef.current;
-    const m = minutes !== undefined ? minutes : current.queuedMinutes;
-    const s = seconds !== undefined ? seconds : current.queuedSeconds;
-    const total = m * 60 + s;
+    const h = hours !== undefined ? hours : (current.queuedHours || 0);
+    const m = minutes !== undefined ? minutes : (current.queuedMinutes || 0);
+    const s = seconds !== undefined ? seconds : (current.queuedSeconds || 0);
+    const total = h * 3600 + m * 60 + s;
     const validTotal = total > 0 ? total : 600;
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => ({
       ...prev,
+      queuedHours: h,
       queuedMinutes: m,
       queuedSeconds: s,
       totalSeconds: validTotal,
@@ -194,7 +204,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       targetEndTime: null,
       isBlackout: false,
       lastUpdated: now,
-      lastAction: `Loaded ${String(Math.floor(validTotal / 60)).padStart(2, '0')}:${String(validTotal % 60).padStart(2, '0')} to Stage (Ready)`,
+      lastAction: `Loaded ${formatTime(validTotal).text} to Stage (Ready)`,
     }));
   }, [updateStateAndBroadcast]);
 
@@ -230,7 +240,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const current = stateRef.current;
     if (current.status !== 'paused' && current.status !== 'idle') return;
 
-    const remaining = current.remainingSeconds > 0 ? current.remainingSeconds : (current.queuedMinutes * 60 + current.queuedSeconds || 600);
+    const remaining = current.remainingSeconds > 0 ? current.remainingSeconds : (current.totalSeconds || 600);
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => ({
@@ -239,6 +249,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       totalSeconds: prev.totalSeconds || remaining,
       status: 'running',
       targetEndTime: now + remaining * 1000,
+      isBlackout: false,
       lastUpdated: now,
       lastAction: 'Running',
     }));
@@ -268,20 +279,21 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const reset = useCallback(() => {
     updateStateAndBroadcast((prev) => {
-      const resetTime = prev.totalSeconds > 0 ? prev.totalSeconds : (prev.queuedMinutes * 60 + prev.queuedSeconds || 600);
+      const resetTime = prev.totalSeconds > 0 ? prev.totalSeconds : 600;
       return {
         ...prev,
         remainingSeconds: resetTime,
         status: 'idle',
         targetEndTime: null,
+        isBlackout: false,
         lastUpdated: Date.now(),
-        lastAction: 'Reset',
+        lastAction: 'Reset to Ready',
       };
     });
   }, [updateStateAndBroadcast]);
 
-  const addTimeToLive = useCallback((minutes: number, seconds: number = 0) => {
-    const delta = minutes * 60 + seconds;
+  const addTimeToLive = useCallback((hours: number, minutes: number, seconds: number = 0) => {
+    const delta = hours * 3600 + minutes * 60 + seconds;
     if (delta <= 0) return;
     const now = Date.now();
 
@@ -295,23 +307,25 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           remainingSeconds: newRemaining,
           targetEndTime: newTarget,
           status: 'running',
+          isBlackout: false,
           lastUpdated: now,
-          lastAction: `Added +${minutes}m ${seconds}s`,
+          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
       } else {
         return {
           ...prev,
           remainingSeconds: newRemaining,
           totalSeconds: Math.max(prev.totalSeconds, newRemaining),
+          isBlackout: false,
           lastUpdated: now,
-          lastAction: `Added +${minutes}m ${seconds}s`,
+          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
       }
     });
   }, [updateStateAndBroadcast]);
 
-  const subtractTimeFromLive = useCallback((minutes: number, seconds: number = 0) => {
-    const delta = minutes * 60 + seconds;
+  const subtractTimeFromLive = useCallback((hours: number, minutes: number, seconds: number = 0) => {
+    const delta = hours * 3600 + minutes * 60 + seconds;
     if (delta <= 0) return;
     const now = Date.now();
 
@@ -326,7 +340,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           targetEndTime: newRemaining > 0 ? newTarget : null,
           status: newRemaining > 0 ? 'running' : 'finished',
           lastUpdated: now,
-          lastAction: `Subtracted -${minutes}m ${seconds}s`,
+          lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
       } else {
         return {
@@ -334,7 +348,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           remainingSeconds: newRemaining,
           status: newRemaining === 0 && prev.status !== 'idle' ? 'finished' : prev.status,
           lastUpdated: now,
-          lastAction: `Subtracted -${minutes}m ${seconds}s`,
+          lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
       }
     });
@@ -342,14 +356,14 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const adjustRemainingTime = useCallback((deltaSeconds: number) => {
     if (deltaSeconds >= 0) {
-      addTimeToLive(0, deltaSeconds);
+      addTimeToLive(0, 0, deltaSeconds);
     } else {
-      subtractTimeFromLive(0, Math.abs(deltaSeconds));
+      subtractTimeFromLive(0, 0, Math.abs(deltaSeconds));
     }
   }, [addTimeToLive, subtractTimeFromLive]);
 
-  const setLiveDuration = useCallback((minutes: number, seconds: number = 0) => {
-    const newTotal = minutes * 60 + seconds;
+  const setLiveDuration = useCallback((hours: number, minutes: number, seconds: number = 0) => {
+    const newTotal = hours * 3600 + minutes * 60 + seconds;
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => {
@@ -360,8 +374,9 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         remainingSeconds: newTotal,
         targetEndTime: isRunning ? now + newTotal * 1000 : null,
         status: isRunning ? 'running' : prev.status,
+        isBlackout: false,
         lastUpdated: now,
-        lastAction: `Set to ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`,
+        lastAction: `Set to ${formatTime(newTotal).text}`,
       };
     });
   }, [updateStateAndBroadcast]);

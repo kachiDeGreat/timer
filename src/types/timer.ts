@@ -3,6 +3,7 @@ export type TimerStatus = 'idle' | 'running' | 'paused' | 'finished';
 export type StageColor = 'white' | 'blue';
 
 export interface TimerState {
+  queuedHours: number;
   queuedMinutes: number;
   queuedSeconds: number;
   totalSeconds: number;
@@ -16,6 +17,7 @@ export interface TimerState {
 }
 
 export const DEFAULT_TIMER_STATE: TimerState = {
+  queuedHours: 0,
   queuedMinutes: 10,
   queuedSeconds: 0,
   totalSeconds: 600,

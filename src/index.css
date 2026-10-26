@@ -724,6 +724,11 @@ html, body, #root {
   text-shadow: none !important;
 }
 
+/* Scaling for HH:MM:SS format when running into hours */
+.stage-digits.has-hours {
+  font-size: clamp(5.5rem, 25vw, 40vh);
+}
+
 /* Color schemes: White vs Blue */
 .color-white .stage-digits {
   color: #ffffff;
@@ -736,6 +741,10 @@ html, body, #root {
 /* In preview box, scale digits properly */
 .is-preview .stage-digits {
   font-size: clamp(2.5rem, 9vw, 4.5rem);
+}
+
+.is-preview .stage-digits.has-hours {
+  font-size: clamp(1.8rem, 6.5vw, 3.2rem);
 }
 
 /* =========================================================

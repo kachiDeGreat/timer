@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import type { TimerState } from '../types/timer';
 
+import { formatTime } from '../utils/time';
+
 interface ProjectorDisplayProps {
   state: TimerState;
   isPreview?: boolean;
@@ -46,10 +48,8 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     };
   }, [status]);
 
-  // Standard MM:SS formatting
-  const mins = Math.floor(remainingSeconds / 60);
-  const secs = remainingSeconds % 60;
-  const formattedTime = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  // Under 60 mins -> MM:SS; 60 mins and above -> HH:MM:SS
+  const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
 
   if (state.isBlackout) {
     return (
@@ -87,7 +87,7 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
         </div>
       ) : (
         <div className="stage-digits-container">
-          <div className="stage-digits">{formattedTime}</div>
+          <div className={`stage-digits ${hasHours ? 'has-hours' : ''}`}>{formattedTime}</div>
         </div>
       )}
     </div>
