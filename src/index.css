@@ -771,14 +771,14 @@ html, body, #root {
 /* Phase 1: Heartbeat pulse TIME UP text (White text on Pure Red background) */
 .timeup-text {
   font-family: var(--font-family);
-  font-size: clamp(6rem, 28vw, 42vh);
+  font-size: clamp(6rem, 20vw, 34vh);
   font-weight: 950;
   color: #ffffff;
   line-height: 1;
   letter-spacing: -0.02em;
   text-align: center;
   text-shadow: none !important;
-  animation: timeUpHeartbeat 0.55s infinite ease-in-out;
+  /* animation: timeUpHeartbeat 0.55s infinite ease-in-out; */
 }
 
 .is-preview .timeup-text {
