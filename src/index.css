@@ -748,13 +748,13 @@ html, body, #root {
 }
 
 /* =========================================================
-   TIME UP SEQUENCE: PURE RED BACKGROUND & NO SHADOWS
+   TIME UP SEQUENCE: BLACK BACKGROUND & RED FONT
    ========================================================= */
 
-/* Background changes from black to PURE RED */
+/* Background remains pure black on status-finished */
 .stage-screen-root.status-finished,
 .stage-screen-root.status-finished .timeup-container {
-  background-color: #ff0000 !important;
+  background-color: #000000 !important;
 }
 
 .timeup-container {
@@ -763,46 +763,33 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #ff0000;
+  background-color: #000000;
   padding: 0 4vw;
   box-shadow: none !important;
 }
 
-/* Phase 1: Heartbeat pulse TIME UP text (White text on Pure Red background) */
+/* Phase 1: TIME UP text (Red font on Black background for 5s) */
 .timeup-text {
   font-family: var(--font-family);
   font-size: clamp(6rem, 20vw, 34vh);
   font-weight: 950;
-  color: #ffffff;
+  color: #ff0000 !important;
   line-height: 1;
   letter-spacing: -0.02em;
   text-align: center;
   text-shadow: none !important;
-  /* animation: timeUpHeartbeat 0.55s infinite ease-in-out; */
 }
 
 .is-preview .timeup-text {
   font-size: clamp(2.2rem, 8vw, 3.8rem);
 }
 
-@keyframes timeUpHeartbeat {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.12);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* Phase 2: Static Big Text "PLEASE CONCLUDE NOW" (NOT a slider) */
+/* Phase 2: Static Big Text "PLEASE CONCLUDE NOW" (Red font on Black background for 5s) */
 .conclude-text {
   font-family: var(--font-family);
   font-size: clamp(3.5rem, 15vw, 24vh);
   font-weight: 950;
-  color: #ffffff;
+  color: #ff0000 !important;
   line-height: 1.1;
   letter-spacing: 0.02em;
   text-align: center;
@@ -813,3 +800,30 @@ html, body, #root {
 .is-preview .conclude-text {
   font-size: clamp(1.2rem, 4vw, 2rem);
 }
+
+/* Phase 3: Negative Count-Up in Minus (Red font on Black background) */
+.stage-digits.is-negative,
+.color-white .stage-digits.is-negative,
+.color-blue .stage-digits.is-negative {
+  color: #ff0000 !important;
+  font-size: clamp(7rem, 30vw, 50vh);
+}
+
+.stage-digits.is-negative.has-hours,
+.color-white .stage-digits.is-negative.has-hours,
+.color-blue .stage-digits.is-negative.has-hours {
+  font-size: clamp(4.8rem, 21vw, 36vh);
+}
+
+.is-preview .stage-digits.is-negative,
+.is-preview .color-white .stage-digits.is-negative,
+.is-preview .color-blue .stage-digits.is-negative {
+  font-size: clamp(2.2rem, 7.5vw, 3.8rem);
+}
+
+.is-preview .stage-digits.is-negative.has-hours,
+.is-preview .color-white .stage-digits.is-negative.has-hours,
+.is-preview .color-blue .stage-digits.is-negative.has-hours {
+  font-size: clamp(1.6rem, 5.5vw, 2.8rem);
+}
+

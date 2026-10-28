@@ -40,12 +40,14 @@ function loadInitialState(): TimerState {
           queuedHours: parsed.queuedHours || 0,
           remainingSeconds: remaining,
           status: remaining > 0 ? 'running' : 'finished',
+          finishedAt: remaining > 0 ? null : (parsed.finishedAt || Date.now()),
         };
       }
       return {
         ...DEFAULT_TIMER_STATE,
         ...parsed,
         queuedHours: parsed.queuedHours || 0,
+        finishedAt: parsed.finishedAt || null,
       };
     }
   } catch (e) {
@@ -53,6 +55,7 @@ function loadInitialState(): TimerState {
   }
   return DEFAULT_TIMER_STATE;
 }
+
 
 export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<TimerState>(loadInitialState);
@@ -130,12 +133,14 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const remaining = Math.max(0, Math.ceil((current.targetEndTime - now) / 1000));
 
       if (remaining === 0) {
+        const finishTime = Date.now();
         updateStateAndBroadcast((prev) => ({
           ...prev,
           remainingSeconds: 0,
           status: 'finished',
+          finishedAt: prev.finishedAt || finishTime,
           targetEndTime: null,
-          lastUpdated: Date.now(),
+          lastUpdated: finishTime,
           lastAction: 'Time Up!',
         }));
       } else if (remaining !== current.remainingSeconds) {
@@ -177,6 +182,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remainingSeconds: validTotal,
       status: 'running',
       targetEndTime: now + validTotal * 1000,
+      finishedAt: null,
       isBlackout: false,
       lastUpdated: now,
       lastAction: `Jumped to ${formatTime(validTotal).text}`,
@@ -202,6 +208,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remainingSeconds: validTotal,
       status: 'idle',
       targetEndTime: null,
+      finishedAt: null,
       isBlackout: false,
       lastUpdated: now,
       lastAction: `Loaded ${formatTime(validTotal).text} to Stage (Ready)`,
@@ -231,6 +238,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remainingSeconds: remaining,
       status: 'paused',
       targetEndTime: null,
+      finishedAt: null,
       lastUpdated: Date.now(),
       lastAction: 'Paused',
     }));
@@ -249,6 +257,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       totalSeconds: prev.totalSeconds || remaining,
       status: 'running',
       targetEndTime: now + remaining * 1000,
+      finishedAt: null,
       isBlackout: false,
       lastUpdated: now,
       lastAction: 'Running',
@@ -272,6 +281,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remainingSeconds: 0,
       status: 'idle',
       targetEndTime: null,
+      finishedAt: null,
       lastUpdated: Date.now(),
       lastAction: 'Stopped',
     }));
@@ -285,6 +295,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         remainingSeconds: resetTime,
         status: 'idle',
         targetEndTime: null,
+        finishedAt: null,
         isBlackout: false,
         lastUpdated: Date.now(),
         lastAction: 'Reset to Ready',
@@ -298,6 +309,19 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => {
+      if (prev.status === 'finished') {
+        return {
+          ...prev,
+          remainingSeconds: delta,
+          totalSeconds: Math.max(prev.totalSeconds, delta),
+          targetEndTime: now + delta * 1000,
+          status: 'running',
+          finishedAt: null,
+          isBlackout: false,
+          lastUpdated: now,
+          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+        };
+      }
       let newRemaining = prev.remainingSeconds + delta;
       if (prev.status === 'running' && prev.targetEndTime) {
         const newTarget = prev.targetEndTime + delta * 1000;
@@ -307,6 +331,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           remainingSeconds: newRemaining,
           targetEndTime: newTarget,
           status: 'running',
+          finishedAt: null,
           isBlackout: false,
           lastUpdated: now,
           lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
@@ -316,6 +341,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ...prev,
           remainingSeconds: newRemaining,
           totalSeconds: Math.max(prev.totalSeconds, newRemaining),
+          finishedAt: null,
           isBlackout: false,
           lastUpdated: now,
           lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
@@ -334,19 +360,23 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (prev.status === 'running' && prev.targetEndTime) {
         const newTarget = Math.max(now, prev.targetEndTime - delta * 1000);
         newRemaining = Math.max(0, Math.ceil((newTarget - now) / 1000));
+        const isFinished = newRemaining === 0;
         return {
           ...prev,
           remainingSeconds: newRemaining,
-          targetEndTime: newRemaining > 0 ? newTarget : null,
-          status: newRemaining > 0 ? 'running' : 'finished',
+          targetEndTime: isFinished ? null : newTarget,
+          status: isFinished ? 'finished' : 'running',
+          finishedAt: isFinished ? (prev.finishedAt || now) : null,
           lastUpdated: now,
           lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
       } else {
+        const isFinished = newRemaining === 0 && prev.status !== 'idle';
         return {
           ...prev,
           remainingSeconds: newRemaining,
-          status: newRemaining === 0 && prev.status !== 'idle' ? 'finished' : prev.status,
+          status: isFinished ? 'finished' : prev.status,
+          finishedAt: isFinished ? (prev.finishedAt || now) : null,
           lastUpdated: now,
           lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
         };
@@ -374,12 +404,14 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         remainingSeconds: newTotal,
         targetEndTime: isRunning ? now + newTotal * 1000 : null,
         status: isRunning ? 'running' : prev.status,
+        finishedAt: null,
         isBlackout: false,
         lastUpdated: now,
         lastAction: `Set to ${formatTime(newTotal).text}`,
       };
     });
   }, [updateStateAndBroadcast]);
+
 
   const setColorScheme = useCallback((colorScheme: StageColor) => {
     updateStateAndBroadcast((prev) => ({

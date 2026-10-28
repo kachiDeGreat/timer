@@ -100,6 +100,50 @@ export const ControlSurface: React.FC = () => {
   const subTotalSecs = subHours * 3600 + subMins * 60 + subSecs;
   const subDisplay = `-${formatTime(subTotalSecs).text}`;
 
+  // Periodic re-render during finished phase so status chip and preview meta update in real time
+  const [, setTick] = useState(0);
+  React.useEffect(() => {
+    if (state.status !== 'finished') return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [state.status]);
+
+  const getStatusLabel = () => {
+    if (state.isBlackout) return 'BLACKOUT';
+    if (state.status === 'finished') {
+      if (state.finishedAt) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - state.finishedAt) / 1000));
+        if (elapsed < 5) return 'TIME UP';
+        if (elapsed < 10) return 'CONCLUDE NOW';
+        const currentOvertime = elapsed + 1;
+        if (currentOvertime >= 20 && (currentOvertime % 10 === 0 || currentOvertime % 10 === 1)) {
+          return 'TIME UP';
+        }
+        return 'OVERTIME';
+      }
+      return 'TIME UP';
+    }
+    return state.status.toUpperCase();
+  };
+
+  const getPreviewMeta = () => {
+    if (state.isBlackout) return 'Stage Screen Blackout (Display Blank)';
+    if (state.status === 'finished' && state.finishedAt) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - state.finishedAt) / 1000));
+      if (elapsed < 5) return 'Stage: TIME UP (5s Alert)';
+      if (elapsed < 10) return 'Stage: PLEASE CONCLUDE NOW (5s Alert)';
+      const currentOvertime = elapsed + 1;
+      if (currentOvertime >= 20 && (currentOvertime % 10 === 0 || currentOvertime % 10 === 1)) {
+        return 'Stage: TIME UP (10s Periodic Alert)';
+      }
+      return `Stage: Overtime Count-Up (-${formatTime(currentOvertime).text})`;
+    }
+    return state.lastAction || 'Standard Time Display';
+  };
+
+
   return (
     <div className="surface-viewport">
       {/* Top Bar */}
@@ -107,7 +151,7 @@ export const ControlSurface: React.FC = () => {
         <div className="topbar-left">
           <span className="app-title">STAGE TIMER</span>
           <span className={`status-chip chip-${state.status}`}>
-            {state.isBlackout ? 'BLACKOUT' : state.status.toUpperCase()}
+            {getStatusLabel()}
           </span>
         </div>
 
@@ -143,9 +187,10 @@ export const ControlSurface: React.FC = () => {
             <div className="card-header">
               <span className="card-label">PROJECTOR PREVIEW</span>
               <span className="card-meta">
-                {state.lastAction || 'Standard Time Display'}
+                {getPreviewMeta()}
               </span>
             </div>
+
 
             <div className="preview-screen-box">
               <ProjectorDisplay

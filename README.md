@@ -18,12 +18,15 @@ A professional, material-styled web countdown timer engineered for church servic
 - **Add / Remove Accordion**: Collapsible tool to add (`+30s`, `+1m`, `+2m 30s`, `+5m`) or deduct (`-30s`, `-1m`, `-2m`, `-5m`) time to/from the live clock.
 - **Blackout Screen Mode**: Blank the TV display between speakers with a single click.
 
-### 3. Pure Red Time Up Sequence
+### 3. Time Up & Overtime Sequence
 When the countdown reaches `00:00`:
-- The entire stage background switches from black to **pure solid red (`#ff0000`)**.
-- Displays solid white pulsing **"TIME UP"** (heartbeat animation).
-- Alternates with massive static text: **"PLEASE CONCLUDE NOW"** until the operator resets or loads the next session.
-- Completely shadow-free for maximum legibility on stage monitors.
+- **Phase 1 (0s – 5s)**: Displays bold **"TIME UP"** in **red font** on a **pure black background** for 5 seconds.
+- **Phase 2 (5s – 10s)**: Transitions to bold **"PLEASE CONCLUDE NOW"** in **red font** on a **pure black background** for 5 seconds.
+- **Phase 3 (10s and onward)**: Starts an overtime **count-up in minus starting from `-00:11` upward** (`-00:11`, `-00:12`...) in **red font** on a **pure black background**.
+- **Periodic Reminder Alerts**: At every 10-second interval (e.g. 20s, 30s, 40s...), **"TIME UP"** flashes for 2 seconds before continuing the count-up.
+- Completely shadow-free with high contrast for maximum legibility on stage monitors and projectors.
+
+
 
 ### 4. Multi-Screen Window Management
 - **One-Click Extended Screen Placement**: Uses the browser's Window Management API (`getScreenDetails()`) to automatically detect secondary monitors (TV/Projector) and position the output window directly on it.

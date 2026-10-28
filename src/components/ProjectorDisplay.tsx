@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { TimerState } from '../types/timer';
-
-import { formatTime } from '../utils/time';
+import { formatTime, formatNegativeTime } from '../utils/time';
 
 interface ProjectorDisplayProps {
   state: TimerState;
@@ -14,42 +13,23 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
   isPreview = false,
   onPreviewClick,
 }) => {
-  const { remainingSeconds, status, colorScheme } = state;
-  const [timeUpPhase, setTimeUpPhase] = useState<'pulse' | 'conclude'>('pulse');
+  const { remainingSeconds, status, colorScheme, finishedAt } = state;
+  const [now, setNow] = useState<number>(Date.now());
 
-  // Alternating Time Up cycle:
-  // 10 heartbeat pulses of "TIME UP" (~5.5s), then big bold "PLEASE CONCLUDE NOW" (~5s)
+  // Real-time ticking while in finished state to drive:
+  // 1. "TIME UP" for 5 seconds
+  // 2. "PLEASE CONCLUDE NOW" for 5 seconds
+  // 3. Count-up in minus starting fresh from -00:01
   useEffect(() => {
-    if (status !== 'finished') {
-      setTimeUpPhase('pulse');
-      return;
-    }
+    if (status !== 'finished') return;
 
-    let isMounted = true;
-    let timer: ReturnType<typeof setTimeout>;
+    setNow(Date.now());
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 200);
 
-    const runCycle = () => {
-      setTimeUpPhase('pulse');
-      timer = setTimeout(() => {
-        if (!isMounted) return;
-        setTimeUpPhase('conclude');
-        timer = setTimeout(() => {
-          if (!isMounted) return;
-          runCycle();
-        }, 5000);
-      }, 5500);
-    };
-
-    runCycle();
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
+    return () => clearInterval(interval);
   }, [status]);
-
-  // Under 60 mins -> MM:SS; 60 mins and above -> HH:MM:SS
-  const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
 
   if (state.isBlackout) {
     return (
@@ -69,27 +49,83 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     );
   }
 
+  // When timer has reached 0:
+  // 0s to 5s: "TIME UP" in red font on black background (5 seconds)
+  // 5s to 10s: "PLEASE CONCLUDE NOW" in red font on black background (5 seconds)
+  // 10s and beyond: Count-up starts from 11 seconds upward in minus (-00:11, -00:12...)
+  // At every 10-second interval (20s, 30s, 40s...), "TIME UP" displays for 2 seconds
+  if (status === 'finished') {
+    const finishBase = finishedAt || state.lastUpdated || now;
+    const elapsedSecs = Math.max(0, Math.floor((now - finishBase) / 1000));
+
+    let finishedContent: React.ReactNode;
+
+    if (elapsedSecs < 5) {
+      finishedContent = (
+        <div className="timeup-container">
+          <div className="timeup-text">TIME UP</div>
+        </div>
+      );
+    } else if (elapsedSecs < 10) {
+      finishedContent = (
+        <div className="timeup-container">
+          <div className="conclude-text">PLEASE CONCLUDE NOW</div>
+        </div>
+      );
+    } else {
+      // Overtime count-up starts from 11 seconds upward
+      const currentOvertimeSecs = elapsedSecs + 1;
+      const isIntervalTimeUp =
+        currentOvertimeSecs >= 20 &&
+        (currentOvertimeSecs % 10 === 0 || currentOvertimeSecs % 10 === 1);
+
+      if (isIntervalTimeUp) {
+        finishedContent = (
+          <div className="timeup-container">
+            <div className="timeup-text">TIME UP</div>
+          </div>
+        );
+      } else {
+        const { text: formattedNegative, hasHours } = formatNegativeTime(currentOvertimeSecs);
+        finishedContent = (
+          <div className="stage-digits-container">
+            <div className={`stage-digits is-negative ${hasHours ? 'has-hours' : ''}`}>
+              {formattedNegative}
+            </div>
+          </div>
+        );
+      }
+    }
+
+    return (
+      <div
+        className={`stage-screen-root status-finished ${
+          isPreview ? 'is-preview' : 'is-projector-window'
+        }`}
+        onClick={isPreview ? onPreviewClick : undefined}
+        title={isPreview ? 'Click to toggle timer' : undefined}
+      >
+        {finishedContent}
+      </div>
+    );
+  }
+
+
+  // Under 60 mins -> MM:SS; 60 mins and above -> HH:MM:SS
+  const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
+
   return (
     <div
       className={`stage-screen-root color-${colorScheme} ${
         isPreview ? 'is-preview' : 'is-projector-window'
-      } ${status === 'finished' ? 'status-finished' : ''}`}
+      }`}
       onClick={isPreview ? onPreviewClick : undefined}
       title={isPreview ? 'Click to toggle timer' : undefined}
     >
-      {status === 'finished' ? (
-        <div className="timeup-container">
-          {timeUpPhase === 'pulse' ? (
-            <div className="timeup-text">TIME UP</div>
-          ) : (
-            <div className="conclude-text">PLEASE CONCLUDE NOW</div>
-          )}
-        </div>
-      ) : (
-        <div className="stage-digits-container">
-          <div className={`stage-digits ${hasHours ? 'has-hours' : ''}`}>{formattedTime}</div>
-        </div>
-      )}
+      <div className="stage-digits-container">
+        <div className={`stage-digits ${hasHours ? 'has-hours' : ''}`}>{formattedTime}</div>
+      </div>
     </div>
   );
 };
+

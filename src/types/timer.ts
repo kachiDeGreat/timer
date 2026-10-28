@@ -10,6 +10,7 @@ export interface TimerState {
   remainingSeconds: number;
   status: TimerStatus;
   targetEndTime: number | null;
+  finishedAt: number | null;
   lastUpdated: number;
   colorScheme: StageColor;
   isBlackout: boolean;
@@ -24,8 +25,10 @@ export const DEFAULT_TIMER_STATE: TimerState = {
   remainingSeconds: 600,
   status: 'idle',
   targetEndTime: null,
+  finishedAt: null,
   lastUpdated: Date.now(),
   colorScheme: 'white',
   isBlackout: false,
   lastAction: 'Initialized (10:00)',
 };
+

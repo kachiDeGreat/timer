@@ -27,3 +27,18 @@ export function formatTime(seconds: number): {
     hasHours: false,
   };
 }
+
+/**
+ * Format overtime / negative count-up time with minus prefix: -MM:SS or -HH:MM:SS
+ */
+export function formatNegativeTime(seconds: number): {
+  text: string;
+  hasHours: boolean;
+} {
+  const { text, hasHours } = formatTime(seconds);
+  return {
+    text: `-${text}`,
+    hasHours,
+  };
+}
+
