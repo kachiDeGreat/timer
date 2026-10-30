@@ -72,6 +72,7 @@ function loadInitialState(): TimerState {
       return {
         ...DEFAULT_TIMER_STATE,
         ...parsed,
+        isBlackout: true, // Default to pure black on startup (VideoPsalm standard)
         queuedHours: parsed.queuedHours || 0,
         finishedAt: parsed.finishedAt || null,
         timerQueue,

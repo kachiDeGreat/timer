@@ -43,7 +43,7 @@ export const DEFAULT_TIMER_STATE: TimerState = {
   finishedAt: null,
   lastUpdated: Date.now(),
   colorScheme: 'white',
-  isBlackout: false,
+  isBlackout: true,
   lastAction: 'Initialized (10:00)',
   timerQueue: [],
   activeQueueItemId: null,

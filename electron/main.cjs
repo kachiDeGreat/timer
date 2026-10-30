@@ -256,11 +256,23 @@ function createMainWindow() {
 app.whenReady().then(() => {
   createMainWindow();
 
+  // The moment the app launches, if an external display is connected,
+  // immediately open the projector window on the external screen in black
+  // (Standard stage/church projection behavior like VideoPsalm / EasyWorship)
+  setTimeout(() => {
+    const external = findExternalDisplay();
+    if (external && (!projectorWindow || projectorWindow.isDestroyed())) {
+      createOrFocusProjectorWindow();
+    }
+  }, 350);
+
   // Screen listeners for automatic external display migration
   screen.on('display-added', (_event, newDisplay) => {
     notifyDisplays();
-    // If projector window is open, immediately switch it to the newly plugged external display!
-    if (projectorWindow && !projectorWindow.isDestroyed()) {
+    // If external display was plugged in, immediately launch black projection window on it!
+    if (!projectorWindow || projectorWindow.isDestroyed()) {
+      createOrFocusProjectorWindow();
+    } else {
       applyExternalPlacement(projectorWindow, newDisplay);
     }
   });
