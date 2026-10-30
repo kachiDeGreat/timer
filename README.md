@@ -61,21 +61,21 @@ npm run electron
 npm run build:linux
 ```
 The built Linux installers are generated inside the `release/` folder:
-- `StageTimer Pro-1.0.0.AppImage` (Run directly with `chmod +x` and double-click)
-- `stagetimer-pro_1.0.0_amd64.deb` (Install on Ubuntu via `sudo dpkg -i release/stagetimer-pro_1.0.0_amd64.deb`)
+- `StageTimer Pro-1.0.1.AppImage` (Run directly with `chmod +x` and double-click)
+- `stagetimer-pro_1.0.1_amd64.deb` (Install on Ubuntu via `sudo dpkg -i release/stagetimer-pro_1.0.1_amd64.deb`)
 - `release/linux-unpacked/` (Portable standalone executable folder)
 
-### 🪟 Windows Build
-```bash
-# Build Windows installer (.exe) & portable binary
-npm run build:win
-```
+### 🪟 Windows (.EXE Setup Installer & Portable)
+The Windows binaries are generated in the `release/` folder:
+- `StageTimer Pro Setup 1.0.1.exe` (Standard Windows installation wizard — double-click to install)
+- `StageTimer Pro-1.0.1-win.zip` (Portable ZIP package containing `StageTimer Pro.exe`)
+- `release/win-unpacked/StageTimer Pro.exe` (Direct standalone executable)
 
-### 🍎 macOS Build
-```bash
-# Build macOS .dmg package
-npm run build:mac
-```
+### 🍎 macOS (.APP & ZIP)
+The macOS binaries are generated in the `release/` folder:
+- `StageTimer Pro-1.0.1-mac.zip` (macOS distribution ZIP containing `StageTimer Pro.app`)
+- `release/mac/StageTimer Pro.app` (macOS Application bundle)
+
 
 ### 🌐 Web Browser Mode
 ```bash
