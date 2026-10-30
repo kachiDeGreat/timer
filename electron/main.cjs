@@ -14,7 +14,42 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 function findExternalDisplay() {
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
-  return displays.find((d) => d.id !== primary.id) || null;
+  const found = displays.find((d) => d.id !== primary.id);
+  if (found) return found;
+
+  // Linux fallback: parse xrandr to guarantee connected HDMI monitor is never missed
+  if (process.platform === 'linux') {
+    try {
+      const { execSync } = require('child_process');
+      const out = execSync('xrandr --listmonitors', { encoding: 'utf8' });
+      const lines = out.split('\n').filter((l) => l.trim().match(/^\d+:/));
+      if (lines.length > 1) {
+        for (const line of lines) {
+          if (!line.includes('*')) {
+            const match = line.match(/\s*(\d+):\s*\+([^\s]+)\s+(\d+)\/\d+x(\d+)\/\d+\+(\d+)\+(\d+)/);
+            if (match) {
+              const [_, idx, name, w, h, x, y] = match;
+              const scale = primary.scaleFactor || 1;
+              return {
+                id: 9999,
+                label: name,
+                bounds: {
+                  x: Math.round(parseInt(x, 10) / scale),
+                  y: Math.round(parseInt(y, 10) / scale),
+                  width: Math.round(parseInt(w, 10) / scale),
+                  height: Math.round(parseInt(h, 10) / scale),
+                },
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
 }
 
 function getDisplaysPayload() {
@@ -59,34 +94,25 @@ function applyExternalPlacement(win, externalDisplay) {
   if (win.isFullScreen()) {
     win.setFullScreen(false);
   }
-  win.setBounds(target);
 
-  let settledCount = 0;
-  const timer = setInterval(() => {
-    if (!win || win.isDestroyed()) {
-      clearInterval(timer);
-      return;
-    }
-    const cur = win.getBounds();
-    if (cur.x !== target.x || cur.y !== target.y || cur.width !== target.width || cur.height !== target.height) {
-      win.setBounds(target);
-      settledCount = 0;
-    } else {
-      settledCount++;
-      if (settledCount >= 2) {
-        win.setOpacity(1);
-        win.focus();
-        clearInterval(timer);
-      }
-    }
+  win.setBounds(target);
+  win.show();
+
+  // Multi-stage reinforcement prevents GNOME Mutter from pulling window to primary screen
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.setBounds(target);
   }, 150);
 
   setTimeout(() => {
-    clearInterval(timer);
     if (!win.isDestroyed()) {
-      win.setOpacity(1);
+      win.setBounds(target);
+      win.focus();
     }
-  }, 3000);
+  }, 400);
+
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.setBounds(target);
+  }, 800);
 }
 
 function loadWithRetry(win, url, maxRetries = 20, delayMs = 400) {
@@ -120,7 +146,7 @@ function createOrFocusProjectorWindow() {
         width: 1280,
         height: 720,
       });
-      projectorWindow.setOpacity(1);
+      projectorWindow.show();
     }
     projectorWindow.focus();
     return;
@@ -136,7 +162,6 @@ function createOrFocusProjectorWindow() {
     show: false,
     frame: !isExternal,
     fullscreen: false,
-    opacity: isExternal ? 0 : 1,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
@@ -176,7 +201,6 @@ function createOrFocusProjectorWindow() {
   }
 
   if (isExternal) {
-    projectorWindow.showInactive();
     applyExternalPlacement(projectorWindow, targetDisplay);
   } else {
     projectorWindow.show();
