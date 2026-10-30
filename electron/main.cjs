@@ -108,6 +108,8 @@ function createOrFocusProjectorWindow() {
   const isExternal = Boolean(externalDisplay);
   const targetDisplay = externalDisplay || primaryDisplay;
 
+  const appIconPath = path.join(__dirname, '../build/icon.png');
+
   projectorWindow = new BrowserWindow({
     x: isExternal ? targetDisplay.bounds.x : primaryDisplay.bounds.x + 80,
     y: isExternal ? targetDisplay.bounds.y : primaryDisplay.bounds.y + 80,
@@ -118,6 +120,7 @@ function createOrFocusProjectorWindow() {
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
+    icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -154,6 +157,8 @@ function createOrFocusProjectorWindow() {
 
 
 function createMainWindow() {
+  const appIconPath = path.join(__dirname, '../build/icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -162,12 +167,14 @@ function createMainWindow() {
     backgroundColor: '#121212',
     autoHideMenuBar: true,
     title: 'StageTimer Pro — Control Surface',
+    icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+
 
   mainWindow.setMenu(null);
 

@@ -1,7 +1,7 @@
 {
   "name": "stagetimer-pro",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Professional Stage & Studio Countdown Timer with Automated External Projector Output",
   "author": "StageTimer Pro Team <contact@stagetimer.pro>",
   "main": "electron/main.cjs",
@@ -15,7 +15,7 @@
     "electron:dev": "concurrently -k \"vite\" \"electron electron/main.cjs --no-sandbox\"",
     "build:linux": "npm run build && electron-builder --linux AppImage deb",
     "build:win": "npm run build && electron-builder --win nsis portable",
-    "build:mac": "npm run build && electron-builder --mac dmg",
+    "build:mac": "npm run build && electron-builder --mac dmg zip",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
@@ -40,11 +40,13 @@
     "appId": "com.stagetimer.pro",
     "productName": "StageTimer Pro",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/**/*",
       "package.json"
     ],
     "linux": {
@@ -52,21 +54,33 @@
         "AppImage",
         "deb"
       ],
-      "category": "Utility",
+      "icon": "build/icons",
+      "category": "Utility"
+    },
+    "deb": {
       "maintainer": "StageTimer Pro Team <contact@stagetimer.pro>",
       "synopsis": "Professional Stage & Studio Countdown Timer"
     },
+
     "win": {
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
+      "icon": "build/icon.png",
       "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "background": null,
+      "backgroundColor": "#121212"
     }
   }
 }
+
