@@ -1,9 +1,11 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
 
-// Disable Linux sandbox requirements if running as unprivileged user
+// Linux display server integration and optimizations
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  app.commandLine.appendSwitch('enable-features', 'WaylandWindowDecorations');
 }
 
 let mainWindow = null;
@@ -53,29 +55,19 @@ function notifyProjectorState(isOpen) {
   }
 }
 
-function moveProjectorToDisplay(win, targetDisplay, makeFullscreen = true) {
+function applyExternalPlacement(win, externalDisplay) {
   if (!win || win.isDestroyed()) return;
-
-  const bounds = targetDisplay.bounds;
+  const bounds = externalDisplay.bounds;
   if (win.isFullScreen()) {
     win.setFullScreen(false);
   }
-
-  win.setBounds({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-  });
-
-  if (makeFullscreen) {
-    // Small delay ensures Linux X11/Wayland window manager has updated geometry before fullscreen
-    setTimeout(() => {
-      if (!win.isDestroyed()) {
-        win.setFullScreen(true);
-      }
-    }, 60);
-  }
+  win.setBounds(bounds);
+  setTimeout(() => {
+    if (!win.isDestroyed()) {
+      win.setBounds(bounds);
+      win.setOpacity(1);
+    }
+  }, 100);
 }
 
 function loadWithRetry(win, url, maxRetries = 20, delayMs = 400) {
@@ -94,19 +86,26 @@ function loadWithRetry(win, url, maxRetries = 20, delayMs = 400) {
 }
 
 function createOrFocusProjectorWindow() {
-  if (projectorWindow && !projectorWindow.isDestroyed()) {
-    const externalDisplay = findExternalDisplay();
-    if (externalDisplay) {
-      moveProjectorToDisplay(projectorWindow, externalDisplay, true);
-    }
-    projectorWindow.focus();
-    return;
-  }
-
   const externalDisplay = findExternalDisplay();
   const primaryDisplay = screen.getPrimaryDisplay();
   const isExternal = Boolean(externalDisplay);
   const targetDisplay = externalDisplay || primaryDisplay;
+
+  if (projectorWindow && !projectorWindow.isDestroyed()) {
+    if (isExternal) {
+      applyExternalPlacement(projectorWindow, externalDisplay);
+    } else {
+      projectorWindow.setBounds({
+        x: primaryDisplay.bounds.x + 80,
+        y: primaryDisplay.bounds.y + 80,
+        width: 1280,
+        height: 720,
+      });
+      projectorWindow.setOpacity(1);
+    }
+    projectorWindow.focus();
+    return;
+  }
 
   const appIconPath = path.join(__dirname, '../build/icon.png');
 
@@ -115,8 +114,10 @@ function createOrFocusProjectorWindow() {
     y: isExternal ? targetDisplay.bounds.y : primaryDisplay.bounds.y + 80,
     width: isExternal ? targetDisplay.bounds.width : 1280,
     height: isExternal ? targetDisplay.bounds.height : 720,
-    fullscreen: isExternal,
+    show: false,
     frame: !isExternal,
+    fullscreen: false,
+    opacity: isExternal ? 0 : 1,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
@@ -130,6 +131,22 @@ function createOrFocusProjectorWindow() {
 
   projectorWindow.setMenu(null);
 
+  // Keyboard shortcut listener: Escape, Alt+F4, Ctrl+W, Cmd+W immediately close the projector window
+  projectorWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    if (
+      input.key === 'Escape' ||
+      (input.alt && (input.key === 'F4' || input.key === 'f4')) ||
+      ((input.control || input.meta) && (input.key === 'w' || input.key === 'W'))
+    ) {
+      if (projectorWindow && !projectorWindow.isDestroyed()) {
+        projectorWindow.close();
+      }
+      event.preventDefault();
+    }
+  });
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
   if (isDev) {
     loadWithRetry(projectorWindow, `${devServerUrl}?view=projector`);
@@ -140,11 +157,28 @@ function createOrFocusProjectorWindow() {
   }
 
   if (isExternal) {
+    // Show inactive first, apply bounds to external display, then reveal and focus
+    projectorWindow.showInactive();
+    projectorWindow.setBounds(targetDisplay.bounds);
+
     setTimeout(() => {
       if (projectorWindow && !projectorWindow.isDestroyed()) {
-        projectorWindow.setFullScreen(true);
+        projectorWindow.setBounds(targetDisplay.bounds);
+        projectorWindow.setOpacity(1);
+        projectorWindow.focus();
       }
-    }, 60);
+    }, 120);
+
+    setTimeout(() => {
+      if (projectorWindow && !projectorWindow.isDestroyed()) {
+        const curBounds = projectorWindow.getBounds();
+        if (curBounds.x !== targetDisplay.bounds.x || curBounds.y !== targetDisplay.bounds.y) {
+          projectorWindow.setBounds(targetDisplay.bounds);
+        }
+      }
+    }, 350);
+  } else {
+    projectorWindow.show();
   }
 
   projectorWindow.on('closed', () => {
@@ -202,7 +236,7 @@ app.whenReady().then(() => {
     notifyDisplays();
     // If projector window is open, immediately switch it to the newly plugged external display!
     if (projectorWindow && !projectorWindow.isDestroyed()) {
-      moveProjectorToDisplay(projectorWindow, newDisplay, true);
+      applyExternalPlacement(projectorWindow, newDisplay);
     }
   });
 
@@ -211,13 +245,16 @@ app.whenReady().then(() => {
     // If external display was unplugged, bring projector window back to primary display
     if (projectorWindow && !projectorWindow.isDestroyed()) {
       const primary = screen.getPrimaryDisplay();
-      projectorWindow.setFullScreen(false);
+      if (projectorWindow.isFullScreen()) {
+        projectorWindow.setFullScreen(false);
+      }
       projectorWindow.setBounds({
         x: primary.bounds.x + 80,
         y: primary.bounds.y + 80,
         width: 1280,
         height: 720,
       });
+      projectorWindow.setOpacity(1);
     }
   });
 

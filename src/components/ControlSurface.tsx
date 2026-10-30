@@ -87,11 +87,19 @@ export const ControlSurface: React.FC = () => {
     }
   }, []);
 
-  const handleLaunchProjector = async () => {
-    const result = await launchProjectorWindow();
-    if (result?.message) {
-      setLaunchNotice(result.message);
-      setTimeout(() => setLaunchNotice(null), 5000);
+  const handleToggleProjector = async () => {
+    if (displayStatus.isProjectorOpen) {
+      if (window.electronAPI?.closeProjector) {
+        await window.electronAPI.closeProjector();
+        setLaunchNotice('Projector display closed.');
+        setTimeout(() => setLaunchNotice(null), 3000);
+      }
+    } else {
+      const result = await launchProjectorWindow();
+      if (result?.message) {
+        setLaunchNotice(result.message);
+        setTimeout(() => setLaunchNotice(null), 5000);
+      }
     }
   };
 
@@ -279,17 +287,17 @@ export const ControlSurface: React.FC = () => {
           <button
             type="button"
             className={`material-btn ${displayStatus.isProjectorOpen ? 'btn-projector-active' : 'btn-secondary'}`}
-            onClick={handleLaunchProjector}
+            onClick={handleToggleProjector}
             id="btn-launch-projector"
             title={
               displayStatus.isProjectorOpen
-                ? 'Projector is currently open (Click to refocus / refresh external output)'
+                ? 'Projector is currently open. Click to close stage display output.'
                 : 'Open Stage Display on External Projector or Monitor'
             }
           >
             <Tv size={16} />
             <span>
-              {displayStatus.isProjectorOpen ? 'Projector: Active' : 'Open Projector Screen'}
+              {displayStatus.isProjectorOpen ? 'Close Projector' : 'Open Projector Screen'}
             </span>
             {displayStatus.isProjectorOpen && <span className="projector-live-indicator" />}
           </button>

@@ -43,6 +43,29 @@ const MainRouter: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (!isProjectorView) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape, Alt+F4, or Ctrl+W / Cmd+W closes the projector window
+      if (
+        e.key === 'Escape' ||
+        (e.altKey && (e.key === 'F4' || e.key === 'f4')) ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W'))
+      ) {
+        e.preventDefault();
+        if (window.electronAPI?.closeProjector) {
+          window.electronAPI.closeProjector();
+        } else {
+          window.close();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isProjectorView]);
+
   if (isProjectorView) {
     return (
       <div
@@ -54,13 +77,27 @@ const MainRouter: React.FC = () => {
             toggleFullScreen();
           }
         }}
-        title="Stage Display Output (Double-click to toggle fullscreen)"
+        title="Stage Display Output (Double-click to toggle fullscreen, press Esc or Alt+F4 to close)"
       >
+        <button
+          type="button"
+          className="projector-close-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.electronAPI?.closeProjector) {
+              window.electronAPI.closeProjector();
+            } else {
+              window.close();
+            }
+          }}
+          title="Close Stage Display (Escape / Alt+F4)"
+        >
+          ✕ Close Stage Display (Esc)
+        </button>
         <ProjectorDisplay state={state} isPreview={false} />
       </div>
     );
   }
-
 
   return <ControlSurface />;
 };
