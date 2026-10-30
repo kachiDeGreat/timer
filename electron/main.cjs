@@ -1,12 +1,9 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
 
-// Linux display server integration and optimizations
-// Forcing X11 enables exact multi-monitor positioning (which Wayland protocol forbids)
+// Linux environment integration
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox');
-  app.commandLine.appendSwitch('ozone-platform', 'x11');
-  app.disableHardwareAcceleration();
 }
 
 let mainWindow = null;
@@ -57,18 +54,39 @@ function notifyProjectorState(isOpen) {
 }
 
 function applyExternalPlacement(win, externalDisplay) {
-  if (!win || win.isDestroyed()) return;
-  const bounds = externalDisplay.bounds;
+  if (!win || win.isDestroyed() || !externalDisplay) return;
+  const target = externalDisplay.bounds;
   if (win.isFullScreen()) {
     win.setFullScreen(false);
   }
-  win.setBounds(bounds);
+  win.setBounds(target);
+
+  let settledCount = 0;
+  const timer = setInterval(() => {
+    if (!win || win.isDestroyed()) {
+      clearInterval(timer);
+      return;
+    }
+    const cur = win.getBounds();
+    if (cur.x !== target.x || cur.y !== target.y || cur.width !== target.width || cur.height !== target.height) {
+      win.setBounds(target);
+      settledCount = 0;
+    } else {
+      settledCount++;
+      if (settledCount >= 2) {
+        win.setOpacity(1);
+        win.focus();
+        clearInterval(timer);
+      }
+    }
+  }, 150);
+
   setTimeout(() => {
+    clearInterval(timer);
     if (!win.isDestroyed()) {
-      win.setBounds(bounds);
       win.setOpacity(1);
     }
-  }, 100);
+  }, 3000);
 }
 
 function loadWithRetry(win, url, maxRetries = 20, delayMs = 400) {
@@ -118,6 +136,7 @@ function createOrFocusProjectorWindow() {
     show: false,
     frame: !isExternal,
     fullscreen: false,
+    opacity: isExternal ? 0 : 1,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
@@ -157,15 +176,8 @@ function createOrFocusProjectorWindow() {
   }
 
   if (isExternal) {
-    projectorWindow.setBounds(targetDisplay.bounds);
-    projectorWindow.show();
-
-    setTimeout(() => {
-      if (projectorWindow && !projectorWindow.isDestroyed()) {
-        projectorWindow.setBounds(targetDisplay.bounds);
-        projectorWindow.focus();
-      }
-    }, 100);
+    projectorWindow.showInactive();
+    applyExternalPlacement(projectorWindow, targetDisplay);
   } else {
     projectorWindow.show();
   }
