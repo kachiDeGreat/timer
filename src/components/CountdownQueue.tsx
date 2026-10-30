@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useTimer } from "../context/TimerContext";
-import { formatTime } from "../utils/time";
+import { formatTime, hasValidTimerLabel } from "../utils/time";
 import type { QueuedTimerItem } from "../types/timer";
 import {
   Play,
@@ -14,6 +14,7 @@ import {
   Edit2,
   Check,
   RotateCcw,
+  Megaphone,
 } from "lucide-react";
 
 export const CountdownQueue: React.FC = () => {
@@ -28,11 +29,22 @@ export const CountdownQueue: React.FC = () => {
     addToQueue,
     pause,
     resume,
+    triggerUpNextAlert,
   } = useTimer();
 
   const queue = state.timerQueue || [];
   const maxSlots = 5;
   const isRunning = state.status === "running";
+
+  const activeIndex = queue.findIndex((item) => item.id === state.activeQueueItemId);
+  const nextItemIndex =
+    activeIndex >= 0 && activeIndex < queue.length - 1
+      ? activeIndex + 1
+      : queue.length > 0 && (activeIndex === -1 || queue.length > 1)
+      ? (activeIndex === 0 ? 1 : 0)
+      : queue.length === 1 && activeIndex === -1
+      ? 0
+      : -1;
 
   // Inline title editing
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,11 +71,11 @@ export const CountdownQueue: React.FC = () => {
   };
 
   const quickAddChips = [
-    { label: "+2m", h: 0, m: 2, s: 0, title: "2m Countdown" },
-    { label: "+5m", h: 0, m: 5, s: 0, title: "5m Countdown" },
-    { label: "+10m", h: 0, m: 10, s: 0, title: "10m Countdown" },
-    { label: "+15m", h: 0, m: 15, s: 0, title: "15m Countdown" },
-    { label: "+30m", h: 0, m: 30, s: 0, title: "30m Countdown" },
+    { label: "+2m", h: 0, m: 2, s: 0 },
+    { label: "+5m", h: 0, m: 5, s: 0 },
+    { label: "+10m", h: 0, m: 10, s: 0 },
+    { label: "+15m", h: 0, m: 15, s: 0 },
+    { label: "+30m", h: 0, m: 30, s: 0 },
   ];
 
   return (
@@ -125,6 +137,9 @@ export const CountdownQueue: React.FC = () => {
           const isItemReady = isActive && state.status === "idle";
           const isItemFinished = isActive && state.status === "finished";
 
+          const hasLabel = hasValidTimerLabel(item.title);
+          const isUpNext = !isActive && index === nextItemIndex;
+
           let statusClass = "status-queued";
           let statusText = "QUEUED";
           if (isItemRunning) {
@@ -139,6 +154,9 @@ export const CountdownQueue: React.FC = () => {
           } else if (isItemFinished) {
             statusClass = "status-finished";
             statusText = "TIME UP";
+          } else if (isUpNext && hasLabel) {
+            statusClass = "status-upnext";
+            statusText = "UP NEXT";
           }
 
           const isEditingThis = editingId === item.id;
@@ -188,6 +206,7 @@ export const CountdownQueue: React.FC = () => {
                       <input
                         type="text"
                         className="slot-title-input"
+                        placeholder="e.g. Sermon, Offering..."
                         value={editTitleText}
                         onChange={(e) => setEditTitleText(e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, item.id)}
@@ -204,11 +223,13 @@ export const CountdownQueue: React.FC = () => {
                     </div>
                   ) : (
                     <div
-                      className="slot-title-display"
+                      className={`slot-title-display ${!hasLabel ? "is-unlabeled" : ""}`}
                       onClick={() => startEditing(item)}
-                      title="Click to rename"
+                      title={hasLabel ? "Click to rename" : "Click to add label (required for Up Next cues)"}
                     >
-                      <span className="slot-title-text">{item.title}</span>
+                      <span className="slot-title-text">
+                        {hasLabel ? item.title : "(Click to add label)"}
+                      </span>
                       <Edit2 size={11} className="slot-edit-icon" />
                     </div>
                   )}
@@ -261,6 +282,20 @@ export const CountdownQueue: React.FC = () => {
                   )}
                 </button>
 
+                {/* Direct Cue Button for Up Next Slot - ONLY IF IT HAS A VALID TIMER LABEL */}
+                {isUpNext && hasLabel && (
+                  <button
+                    type="button"
+                    className="slot-action-btn btn-queue-cue"
+                    onClick={() => triggerUpNextAlert(item.title)}
+                    title={`Flash 'UP NEXT: ${item.title}' red drift animation on stage for 5s`}
+                    id={`btn-cue-slot-${slotNum}`}
+                  >
+                    <Megaphone size={12} />
+                    <span>CUE</span>
+                  </button>
+                )}
+
                 {/* Load (Ready) Button */}
                 <button
                   type="button"
@@ -298,7 +333,7 @@ export const CountdownQueue: React.FC = () => {
               key={chip.label}
               type="button"
               className="quick-chip-pill"
-              onClick={() => addToQueue(chip.h, chip.m, chip.s, chip.title)}
+              onClick={() => addToQueue(chip.h, chip.m, chip.s, "")}
               disabled={queue.length >= maxSlots}
               title={`Add ${chip.label} countdown to queue`}
             >

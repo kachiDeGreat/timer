@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { TimerState } from '../types/timer';
-import { formatTime, formatNegativeTime } from '../utils/time';
+import { formatTime, formatNegativeTime, hasValidTimerLabel } from '../utils/time';
 
 interface ProjectorDisplayProps {
   state: TimerState;
@@ -16,12 +16,16 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
   const { remainingSeconds, status, colorScheme, finishedAt } = state;
   const [now, setNow] = useState<number>(Date.now());
 
-  // Real-time ticking while in finished state to drive:
-  // 1. "TIME UP" for 5 seconds
-  // 2. "PLEASE CONCLUDE NOW" for 5 seconds
-  // 3. Count-up in minus starting fresh from -00:01
+  // Real-time ticking for:
+  // 1. "TIME UP" & overtime sequences when status === 'finished'
+  // 2. "UP NEXT" 5-second alert countdown
   useEffect(() => {
-    if (status !== 'finished') return;
+    const isAlerting = Boolean(
+      state.upNextAlertUntil &&
+      Date.now() < state.upNextAlertUntil &&
+      hasValidTimerLabel(state.upNextAlertTitle)
+    );
+    if (status !== 'finished' && !isAlerting) return;
 
     setNow(Date.now());
     const interval = setInterval(() => {
@@ -29,7 +33,7 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     }, 200);
 
     return () => clearInterval(interval);
-  }, [status]);
+  }, [status, state.upNextAlertUntil, state.upNextAlertTitle]);
 
   if (state.isBlackout) {
     return (
@@ -45,6 +49,61 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
             <span className="blackout-sub">TV output is currently blank</span>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // 5-second prominent UP NEXT stage alert (Only if timer has a valid user-assigned label!)
+  const isUpNextActive =
+    Boolean(
+      state.upNextAlertUntil &&
+      now < state.upNextAlertUntil &&
+      hasValidTimerLabel(state.upNextAlertTitle)
+    ) && !state.isBlackout;
+
+  if (isUpNextActive) {
+    let clockLabel = 'COUNTDOWN:';
+    let clockVal = formatTime(remainingSeconds).text;
+
+    if (status === 'finished') {
+      const finishBase = finishedAt || state.lastUpdated || now;
+      const elapsedSecs = Math.max(0, Math.floor((now - finishBase) / 1000));
+      if (elapsedSecs < 10) {
+        clockLabel = 'STATUS:';
+        clockVal = 'TIME UP';
+      } else {
+        const { text: formattedNegative } = formatNegativeTime(elapsedSecs + 1);
+        clockLabel = 'OVERTIME:';
+        clockVal = formattedNegative;
+      }
+    }
+
+    return (
+      <div
+        className={`stage-screen-root is-upnext-alert ${
+          isPreview ? 'is-preview' : 'is-projector-window'
+        }`}
+        onClick={isPreview ? onPreviewClick : undefined}
+      >
+        <div className="drift-stage-banner">
+          {/* Multi-shade Red Drift Ribbons (News / Canva Drift Effect) */}
+          <div className="drift-layer drift-layer-deep" />
+          <div className="drift-layer drift-layer-crimson" />
+          <div className="drift-layer drift-layer-scarlet" />
+          <div className="drift-layer drift-layer-sheen" />
+
+          {/* Drifting Content */}
+          <div className="drift-content">
+            <div className="drift-badge">
+              <span className="drift-badge-text">UP NEXT</span>
+            </div>
+            <div className="drift-title">{state.upNextAlertTitle}</div>
+            <div className="drift-clock-pill">
+              <span className="drift-clock-label">{clockLabel}</span>
+              <span className="drift-clock-val">{clockVal}</span>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

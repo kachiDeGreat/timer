@@ -12,6 +12,15 @@ export interface DisplaysPayload {
   isProjectorOpen: boolean;
 }
 
+export interface RemoteServerInfo {
+  active: boolean;
+  port: number;
+  primaryIp: string;
+  primaryUrl: string;
+  ipAddresses: Array<{ iface: string; ip: string; url: string }>;
+  clientsCount: number;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   openProjector: () => Promise<{ success: boolean }>;
@@ -22,6 +31,11 @@ export interface ElectronAPI {
   onProjectorStateChange: (callback: (isOpen: boolean) => void) => () => void;
   sendState?: (state: any) => void;
   onStateUpdate?: (callback: (state: any) => void) => () => void;
+  sendTick?: (remainingSeconds: number) => void;
+  onTick?: (callback: (remainingSeconds: number) => void) => () => void;
+  getRemoteInfo?: () => Promise<RemoteServerInfo>;
+  onRemoteAction?: (callback: (action: any) => void) => () => void;
+  onRemoteClientsChange?: (callback: (count: number) => void) => () => void;
 }
 
 

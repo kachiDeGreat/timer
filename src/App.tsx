@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { TimerProvider, useTimer } from './context/TimerContext';
 import { ControlSurface } from './components/ControlSurface';
 import { ProjectorDisplay } from './components/ProjectorDisplay';
+import { MobileRemoteView } from './components/MobileRemoteView';
 import { toggleFullScreen } from './utils/screen';
 import './index.css';
 
 const MainRouter: React.FC = () => {
   const { state } = useTimer();
-  const [isProjectorView, setIsProjectorView] = useState(false);
+  const [viewMode, setViewMode] = useState<'projector' | 'remote' | 'control'>('control');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -15,11 +16,18 @@ const MainRouter: React.FC = () => {
     const view = params.get('view') || hashParams.get('view');
     const autoFs = params.get('autoFullscreen') || hashParams.get('autoFullscreen');
 
+    const isMobileDevice =
+      typeof navigator !== 'undefined' &&
+      /Mobile|Android|iP(hone|od|ad)|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+    const isRemotePort = window.location.port === '3456';
+    const isElectron = Boolean(window.electronAPI?.isElectron);
+
     if (view === 'projector') {
-      setIsProjectorView(true);
+      setViewMode('projector');
       document.title = 'Stage Display — StageTimer Pro';
 
-      // If auto fullscreen requested, request on first user interaction or immediately if permitted
       if (autoFs === '1' || autoFs === 'true') {
         const tryFullscreen = async () => {
           try {
@@ -30,21 +38,29 @@ const MainRouter: React.FC = () => {
         };
         tryFullscreen();
 
-        // Also add click listener to enter fullscreen on first click
         const onFirstClick = () => {
           toggleFullScreen();
           window.removeEventListener('click', onFirstClick);
         };
         window.addEventListener('click', onFirstClick, { once: true });
       }
+    } else if (view === 'control' || view === 'desktop') {
+      setViewMode('control');
+      document.title = 'StageTimer Pro — Control Surface';
+    } else if (view === 'remote') {
+      setViewMode('remote');
+      document.title = 'Mobile Remote — StageTimer Pro';
+    } else if (!isElectron && (isMobileDevice || isRemotePort)) {
+      setViewMode('remote');
+      document.title = 'Mobile Remote — StageTimer Pro';
     } else {
-      setIsProjectorView(false);
+      setViewMode('control');
       document.title = 'StageTimer Pro — Control Surface';
     }
   }, []);
 
   useEffect(() => {
-    if (!isProjectorView) return;
+    if (viewMode !== 'projector') return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Escape, Alt+F4, or Ctrl+W / Cmd+W closes the projector window
@@ -59,14 +75,26 @@ const MainRouter: React.FC = () => {
         } else {
           window.close();
         }
+        return;
+      }
+
+      // F11 toggles fullscreen
+      if (e.key === 'F11') {
+        e.preventDefault();
+        if (window.electronAPI?.toggleProjectorFullscreen) {
+          window.electronAPI.toggleProjectorFullscreen();
+        } else {
+          toggleFullScreen();
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isProjectorView]);
+  }, [viewMode]);
 
-  if (isProjectorView) {
+  if (viewMode === 'projector') {
     return (
       <div
         className="projector-page-container"
@@ -99,7 +127,11 @@ const MainRouter: React.FC = () => {
     );
   }
 
-  return <ControlSurface />;
+  if (viewMode === 'remote') {
+    return <MobileRemoteView onSwitchToDesktop={() => setViewMode('control')} />;
+  }
+
+  return <ControlSurface onSwitchToRemote={() => setViewMode('remote')} />;
 };
 
 function App() {

@@ -42,3 +42,28 @@ export function formatNegativeTime(seconds: number): {
   };
 }
 
+/**
+ * Validates whether a timer has a meaningful, user-assigned label.
+ * Generic fallbacks like "15m Countdown", "15 minutes countdown", "Countdown",
+ * or empty strings return false.
+ * Timers without valid labels CANNOT be cued on the stage display.
+ */
+export function hasValidTimerLabel(title?: string | null): boolean {
+  if (!title) return false;
+  const t = title.trim();
+  if (!t) return false;
+
+  // Reject generic / auto-generated countdown patterns
+  if (/^(\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|s|sec|secs|second|seconds)\s*)?count\s*down$/i.test(t)) {
+    return false;
+  }
+  if (/^\d{1,2}:\d{2}(:\d{2})?\s*count\s*down$/i.test(t)) {
+    return false;
+  }
+  if (/^(untitled|next\s*segment|timer|countdown|none|no\s*label|no\s*title)$/i.test(t)) {
+    return false;
+  }
+
+  return true;
+}
+

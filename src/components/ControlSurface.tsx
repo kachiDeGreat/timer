@@ -3,7 +3,7 @@ import { useTimer } from '../context/TimerContext';
 import { ProjectorDisplay } from './ProjectorDisplay';
 import { CountdownQueue } from './CountdownQueue';
 import { launchProjectorWindow } from '../utils/screen';
-import { formatTime } from '../utils/time';
+import { formatTime, hasValidTimerLabel } from '../utils/time';
 import {
   Play,
   Pause,
@@ -17,10 +17,17 @@ import {
   EyeOff,
   FastForward,
   BookmarkPlus,
+  Megaphone,
+  BellRing,
+  Smartphone,
 } from 'lucide-react';
+import { MobileRemoteModal } from './MobileRemoteModal';
 
+interface ControlSurfaceProps {
+  onSwitchToRemote?: () => void;
+}
 
-export const ControlSurface: React.FC = () => {
+export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote }) => {
   const {
     state,
     queueTime,
@@ -37,7 +44,13 @@ export const ControlSurface: React.FC = () => {
     addToQueue,
     playNextInQueue,
     loadNextInQueueToStage,
+    triggerUpNextAlert,
+    dismissUpNextAlert,
+    setUpNextTriggerSeconds,
+    connectedClientsCount,
   } = useTimer();
+
+  const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false);
 
   // Desktop display hardware status (Electron)
   const [displayStatus, setDisplayStatus] = useState<{
@@ -128,18 +141,17 @@ export const ControlSurface: React.FC = () => {
   const nextItem =
     activeIndex >= 0 && activeIndex < queue.length - 1
       ? queue[activeIndex + 1]
-      : activeIndex === -1 && queue.length > 0
+      : queue.length > 0 && (activeIndex === -1 || queue.length > 1)
+      ? queue[activeIndex === 0 ? 1 : 0]
+      : queue.length === 1 && activeIndex === -1
       ? queue[0]
       : null;
 
-  // Apply preset to builder
-  const applyPreset = (h: number, m: number, s: number, label?: string) => {
+  // Apply preset to builder (only sets duration; never injects generic titles)
+  const applyPreset = (h: number, m: number, s: number) => {
     setInputHours(h);
     setInputMins(m);
     setInputSecs(s);
-    if (label && !inputTitle) {
-      setInputTitle(label);
-    }
     queueTime(h, m, s);
   };
 
@@ -165,17 +177,17 @@ export const ControlSurface: React.FC = () => {
     setSubSecs(s);
   };
 
-  // Presets including minute and hour options
+  // Presets including minute and hour options (durations only)
   const presets = [
-    { label: '5m', h: 0, m: 5, s: 0, title: '5m Countdown' },
-    { label: '10m', h: 0, m: 10, s: 0, title: '10m Countdown' },
-    { label: '15m', h: 0, m: 15, s: 0, title: '15m Countdown' },
-    { label: '20m', h: 0, m: 20, s: 0, title: '20m Countdown' },
-    { label: '30m', h: 0, m: 30, s: 0, title: '30m Countdown' },
-    { label: '45m', h: 0, m: 45, s: 0, title: '45m Countdown' },
-    { label: '1h', h: 1, m: 0, s: 0, title: '1h Countdown' },
-    { label: '1h 30m', h: 1, m: 30, s: 0, title: '1h 30m Countdown' },
-    { label: '2h', h: 2, m: 0, s: 0, title: '2h Countdown' },
+    { label: '5m', h: 0, m: 5, s: 0 },
+    { label: '10m', h: 0, m: 10, s: 0 },
+    { label: '15m', h: 0, m: 15, s: 0 },
+    { label: '20m', h: 0, m: 20, s: 0 },
+    { label: '30m', h: 0, m: 30, s: 0 },
+    { label: '45m', h: 0, m: 45, s: 0 },
+    { label: '1h', h: 1, m: 0, s: 0 },
+    { label: '1h 30m', h: 1, m: 30, s: 0 },
+    { label: '2h', h: 2, m: 0, s: 0 },
   ];
 
   // Calculate formatted display strings
@@ -216,8 +228,24 @@ export const ControlSurface: React.FC = () => {
     return state.status.toUpperCase();
   };
 
+  const [now, setNow] = useState<number>(Date.now());
+  useEffect(() => {
+    if (!state.upNextAlertUntil) return;
+    setNow(Date.now());
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, [state.upNextAlertUntil]);
+
+  const isAlertActive = Boolean(
+    state.upNextAlertUntil && now < state.upNextAlertUntil && state.upNextAlertTitle
+  );
+  const alertSecondsLeft = isAlertActive
+    ? Math.max(1, Math.ceil(((state.upNextAlertUntil || 0) - now) / 1000))
+    : 0;
+
   const getPreviewMeta = () => {
     if (state.isBlackout) return 'Stage Screen Blackout (Display Blank)';
+    if (isAlertActive) return `UP NEXT ALERT ON STAGE (${alertSecondsLeft}s left)`;
     if (state.status === 'finished' && state.finishedAt) {
       const elapsed = Math.max(0, Math.floor((Date.now() - state.finishedAt) / 1000));
       if (elapsed < 5) return 'Stage: TIME UP (5s Alert)';
@@ -272,6 +300,23 @@ export const ControlSurface: React.FC = () => {
               {launchNotice}
             </span>
           )}
+
+          {/* Mobile Remote Pairing Button */}
+          <button
+            type="button"
+            className="material-btn btn-remote-network"
+            onClick={() => setIsRemoteModalOpen(true)}
+            id="btn-open-mobile-remote"
+            title="Open Mobile Remote Control (QR code & Local Network URL for phones & tablets)"
+          >
+            <Smartphone size={16} className="text-emerald" />
+            <span>Mobile Remote</span>
+            {connectedClientsCount > 0 ? (
+              <span className="remote-active-clients-badge">{connectedClientsCount} Connected</span>
+            ) : (
+              <span className="remote-port-badge">:3456</span>
+            )}
+          </button>
 
           <button
             type="button"
@@ -379,60 +424,120 @@ export const ControlSurface: React.FC = () => {
             </div>
 
             {/* Next in Queue Strip */}
-            {nextItem && (
-              <div className="next-queue-strip">
-                <div className="next-strip-info">
-                  <span className="next-strip-badge">UP NEXT:</span>
-                  <span className="next-strip-name">{nextItem.title}</span>
-                  <span className="next-strip-time">{formatTime(nextItem.totalSeconds).text}</span>
+            {nextItem && (() => {
+              const nextHasLabel = hasValidTimerLabel(nextItem.title);
+              return (
+                <div className="next-queue-strip">
+                  <div className="next-strip-info">
+                    <span className="next-strip-badge">
+                      {nextHasLabel ? 'UP NEXT:' : 'NEXT IN QUEUE:'}
+                    </span>
+                    <span className={`next-strip-name ${!nextHasLabel ? 'is-unlabeled' : ''}`}>
+                      {nextHasLabel ? nextItem.title : '(Unlabeled timer)'}
+                    </span>
+                    <span className="next-strip-time">{formatTime(nextItem.totalSeconds).text}</span>
+                  </div>
+                  <div className="next-strip-actions">
+                    {/* Manual Cue Up Next Button - ONLY rendered if the next timer has a valid label */}
+                    {nextHasLabel && (
+                      isAlertActive ? (
+                        <button
+                          type="button"
+                          className="next-action-btn next-alert-active-btn"
+                          onClick={dismissUpNextAlert}
+                          title="Stage alert is currently visible. Click to dismiss immediately."
+                          id="btn-dismiss-upnext-alert"
+                        >
+                          <BellRing size={13} className="alert-pulse-icon" />
+                          <span>Alerting ({alertSecondsLeft}s) · Dismiss</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="next-action-btn next-cue-btn"
+                          onClick={() => triggerUpNextAlert(nextItem.title)}
+                          title={`Flash 'UP NEXT: ${nextItem.title}' red drift animation on stage for 5 seconds now`}
+                          id="btn-cue-upnext-stage"
+                        >
+                          <Megaphone size={13} />
+                          <span>Cue Up Next (5s)</span>
+                        </button>
+                      )
+                    )}
+
+                    <button
+                      type="button"
+                      className="next-action-btn next-load-btn"
+                      onClick={loadNextInQueueToStage}
+                      title="Load next timer to stage in READY mode"
+                    >
+                      <MonitorCheck size={13} />
+                      <span>Load Ready</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="next-action-btn next-play-btn"
+                      onClick={playNextInQueue}
+                      title="Immediately jump to next timer and START"
+                    >
+                      <FastForward size={13} />
+                      <span>Play Next</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="next-strip-actions">
+              );
+            })()}
+          </div>
+
+          {/* Stage Display Settings Card: Color Theme & Up Next Trigger */}
+          <div className="material-card compact-settings-card">
+            <div className="card-header">
+              <span className="card-label">STAGE DISPLAY SETTINGS</span>
+            </div>
+
+            <div className="stage-settings-grid">
+              {/* Up Next Trigger Selector */}
+              <div className="settings-field-box">
+                <span className="settings-field-title">AUTO UP NEXT ALERT:</span>
+                <select
+                  id="select-upnext-trigger"
+                  className="settings-select-dropdown"
+                  value={state.upNextTriggerSeconds ?? 60}
+                  onChange={(e) => setUpNextTriggerSeconds(parseInt(e.target.value, 10))}
+                  title="Choose when the '▲ UP NEXT' notification automatically pops up on stage"
+                >
+                  <option value={120}>At 2:00 Remaining</option>
+                  <option value={90}>At 1:30 Remaining</option>
+                  <option value={60}>At 1:00 Remaining (Default)</option>
+                  <option value={45}>At 0:45 Remaining</option>
+                  <option value={30}>At 0:30 Remaining</option>
+                  <option value={0}>Disabled (Manual Only)</option>
+                </select>
+              </div>
+
+              {/* Color Theme Selector */}
+              <div className="settings-field-box">
+                <span className="settings-field-title">COLOR THEME:</span>
+                <div className="color-toggle-group">
                   <button
                     type="button"
-                    className="next-action-btn next-load-btn"
-                    onClick={loadNextInQueueToStage}
-                    title="Load next timer to stage in READY mode"
+                    className={`color-toggle-btn ${state.colorScheme === 'white' ? 'active' : ''}`}
+                    onClick={() => setColorScheme('white')}
                   >
-                    <MonitorCheck size={13} />
-                    <span>Load Ready</span>
+                    <span className="swatch-circle swatch-white" />
+                    <span>White</span>
                   </button>
+
                   <button
                     type="button"
-                    className="next-action-btn next-play-btn"
-                    onClick={playNextInQueue}
-                    title="Immediately jump to next timer and START"
+                    className={`color-toggle-btn ${state.colorScheme === 'blue' ? 'active' : ''}`}
+                    onClick={() => setColorScheme('blue')}
                   >
-                    <FastForward size={13} />
-                    <span>Play Next</span>
+                    <span className="swatch-circle swatch-blue" />
+                    <span>Blue</span>
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Display Color Settings Card */}
-          <div className="material-card compact-settings-card">
-            <div className="card-header">
-              <span className="card-label">STAGE DISPLAY COLOR</span>
-            </div>
-            <div className="color-toggle-group">
-              <button
-                type="button"
-                className={`color-toggle-btn ${state.colorScheme === 'white' ? 'active' : ''}`}
-                onClick={() => setColorScheme('white')}
-              >
-                <span className="swatch-circle swatch-white" />
-                <span>White Font</span>
-              </button>
-
-              <button
-                type="button"
-                className={`color-toggle-btn ${state.colorScheme === 'blue' ? 'active' : ''}`}
-                onClick={() => setColorScheme('blue')}
-              >
-                <span className="swatch-circle swatch-blue" />
-                <span>Blue Font</span>
-              </button>
             </div>
           </div>
         </section>
@@ -527,7 +632,7 @@ export const ControlSurface: React.FC = () => {
                         key={p.label}
                         type="button"
                         className={`preset-chip ${isActive ? 'active' : ''}`}
-                        onClick={() => applyPreset(p.h, p.m, p.s, p.title)}
+                        onClick={() => applyPreset(p.h, p.m, p.s)}
                       >
                         {p.label}
                       </button>
@@ -775,6 +880,14 @@ export const ControlSurface: React.FC = () => {
           </div>
         </aside>
       </div>
+
+      {/* Mobile Remote Pairing Modal */}
+      <MobileRemoteModal
+        isOpen={isRemoteModalOpen}
+        onClose={() => setIsRemoteModalOpen(false)}
+        connectedCount={connectedClientsCount}
+        onSwitchToRemote={onSwitchToRemote}
+      />
     </div>
   );
 };

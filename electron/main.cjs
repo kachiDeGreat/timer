@@ -1,5 +1,6 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
+const remoteServer = require('./remoteServer.cjs');
 
 // Linux environment integration
 if (process.platform === 'linux') {
@@ -28,7 +29,7 @@ function findExternalDisplay() {
           if (!line.includes('*')) {
             const match = line.match(/\s*(\d+):\s*\+([^\s]+)\s+(\d+)\/\d+x(\d+)\/\d+\+(\d+)\+(\d+)/);
             if (match) {
-              const [_, idx, name, w, h, x, y] = match;
+              const [_, _idx, name, w, h, x, y] = match;
               const scale = primary.scaleFactor || 1;
               return {
                 id: 9999,
@@ -91,28 +92,75 @@ function notifyProjectorState(isOpen) {
 function applyExternalPlacement(win, externalDisplay) {
   if (!win || win.isDestroyed() || !externalDisplay) return;
   const target = externalDisplay.bounds;
-  if (win.isFullScreen()) {
-    win.setFullScreen(false);
-  }
+  const isWin = process.platform === 'win32';
 
-  win.setBounds(target);
-  win.show();
+  if (isWin) {
+    // 1. Position window bounds strictly over the external display
+    win.setBounds(target);
+    win.show();
 
-  // Multi-stage reinforcement prevents GNOME Mutter from pulling window to primary screen
-  setTimeout(() => {
-    if (!win.isDestroyed()) win.setBounds(target);
-  }, 150);
+    // 2. Windows: Engage true fullscreen & topmost screen-saver level.
+    // This instructs Windows DWM to completely suppress the Windows taskbar on the external display
+    // and keeps it covered even when the operator clicks buttons on the laptop Control Surface.
+    win.setFullScreen(true);
+    win.setAlwaysOnTop(true, 'screen-saver');
 
-  setTimeout(() => {
-    if (!win.isDestroyed()) {
-      win.setBounds(target);
-      win.focus();
+    // 3. Multi-stage reinforcement to guarantee taskbar remains hidden
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setBounds(target);
+        win.setFullScreen(true);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    }, 150);
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setFullScreen(true);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    }, 400);
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setFullScreen(true);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    }, 800);
+  } else {
+    // Linux (GNOME Wayland/Mutter) & macOS
+    if (win.isFullScreen()) {
+      win.setFullScreen(false);
     }
-  }, 400);
 
-  setTimeout(() => {
-    if (!win.isDestroyed()) win.setBounds(target);
-  }, 800);
+    win.setBounds(target);
+    win.show();
+    win.setAlwaysOnTop(true, 'screen-saver');
+
+    // Multi-stage reinforcement prevents GNOME Mutter from pulling window to primary screen
+    // and ensures external display covers panels/taskbars cleanly
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setBounds(target);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    }, 150);
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setBounds(target);
+        win.setAlwaysOnTop(true, 'screen-saver');
+        win.focus();
+      }
+    }, 400);
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.setBounds(target);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    }, 800);
+  }
 }
 
 function loadWithRetry(win, url, maxRetries = 20, delayMs = 400) {
@@ -139,6 +187,13 @@ function createOrFocusProjectorWindow() {
   if (projectorWindow && !projectorWindow.isDestroyed()) {
     if (isExternal) {
       applyExternalPlacement(projectorWindow, externalDisplay);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.focus();
+          }
+        }, 200);
+      }
     } else {
       projectorWindow.setBounds({
         x: primaryDisplay.bounds.x + 80,
@@ -147,8 +202,8 @@ function createOrFocusProjectorWindow() {
         height: 720,
       });
       projectorWindow.show();
+      projectorWindow.focus();
     }
-    projectorWindow.focus();
     return;
   }
 
@@ -166,6 +221,7 @@ function createOrFocusProjectorWindow() {
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
     icon: appIconPath,
+    skipTaskbar: isExternal,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -176,6 +232,7 @@ function createOrFocusProjectorWindow() {
   projectorWindow.setMenu(null);
 
   // Keyboard shortcut listener: Escape, Alt+F4, Ctrl+W, Cmd+W immediately close the projector window
+  // F11 toggles fullscreen
   projectorWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
 
@@ -188,6 +245,22 @@ function createOrFocusProjectorWindow() {
         projectorWindow.close();
       }
       event.preventDefault();
+      return;
+    }
+
+    if (input.key === 'F11') {
+      if (projectorWindow && !projectorWindow.isDestroyed()) {
+        const isFS = projectorWindow.isFullScreen();
+        const nextFS = !isFS;
+        projectorWindow.setFullScreen(nextFS);
+        if (nextFS) {
+          projectorWindow.setAlwaysOnTop(true, 'screen-saver');
+        } else {
+          projectorWindow.setAlwaysOnTop(false);
+        }
+      }
+      event.preventDefault();
+      return;
     }
   });
 
@@ -202,8 +275,16 @@ function createOrFocusProjectorWindow() {
 
   if (isExternal) {
     applyExternalPlacement(projectorWindow, targetDisplay);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.focus();
+        }
+      }, 300);
+    }
   } else {
     projectorWindow.show();
+    projectorWindow.focus();
   }
 
   projectorWindow.on('closed', () => {
@@ -256,6 +337,25 @@ function createMainWindow() {
 app.whenReady().then(() => {
   createMainWindow();
 
+  // Initialize Remote Control Server on port 3456
+  remoteServer.init({
+    port: 3456,
+    distDir: path.join(__dirname, '../dist'),
+    isDev,
+    onAction: (action) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('remote-action', action);
+      }
+    },
+    onClientsChange: (count) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('remote-clients-changed', count);
+      }
+    },
+  }).catch((err) => {
+    console.error('[main.cjs] Failed to start remote control server:', err);
+  });
+
   // The moment the app launches, if an external display is connected,
   // immediately open the projector window on the external screen in black
   // (Standard stage/church projection behavior like VideoPsalm / EasyWorship)
@@ -263,8 +363,15 @@ app.whenReady().then(() => {
     const external = findExternalDisplay();
     if (external && (!projectorWindow || projectorWindow.isDestroyed())) {
       createOrFocusProjectorWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.focus();
+          }
+        }, 300);
+      }
     }
-  }, 350);
+  }, 400);
 
   // Screen listeners for automatic external display migration
   screen.on('display-added', (_event, newDisplay) => {
@@ -274,6 +381,13 @@ app.whenReady().then(() => {
       createOrFocusProjectorWindow();
     } else {
       applyExternalPlacement(projectorWindow, newDisplay);
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.focus();
+        }
+      }, 300);
     }
   });
 
@@ -285,6 +399,8 @@ app.whenReady().then(() => {
       if (projectorWindow.isFullScreen()) {
         projectorWindow.setFullScreen(false);
       }
+      projectorWindow.setAlwaysOnTop(false);
+      projectorWindow.setSkipTaskbar(false);
       projectorWindow.setBounds({
         x: primary.bounds.x + 80,
         y: primary.bounds.y + 80,
@@ -328,8 +444,14 @@ ipcMain.handle('close-projector', () => {
 ipcMain.handle('toggle-projector-fullscreen', () => {
   if (projectorWindow && !projectorWindow.isDestroyed()) {
     const isFS = projectorWindow.isFullScreen();
-    projectorWindow.setFullScreen(!isFS);
-    return !isFS;
+    const newFS = !isFS;
+    projectorWindow.setFullScreen(newFS);
+    if (newFS) {
+      projectorWindow.setAlwaysOnTop(true, 'screen-saver');
+    } else {
+      projectorWindow.setAlwaysOnTop(false);
+    }
+    return newFS;
   }
   return false;
 });
@@ -338,11 +460,29 @@ ipcMain.handle('get-displays', () => {
   return getDisplaysPayload();
 });
 
+ipcMain.handle('get-remote-info', () => {
+  return remoteServer.getServerInfo();
+});
+
 ipcMain.on('broadcast-state', (event, state) => {
+  remoteServer.broadcastState(state);
   BrowserWindow.getAllWindows().forEach((win) => {
     if (win.webContents !== event.sender && !win.isDestroyed()) {
       win.webContents.send('timer-state-updated', state);
     }
   });
+});
+
+ipcMain.on('broadcast-tick', (event, remainingSeconds) => {
+  remoteServer.broadcastTick(remainingSeconds);
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (win.webContents !== event.sender && !win.isDestroyed()) {
+      win.webContents.send('timer-tick', remainingSeconds);
+    }
+  });
+});
+
+app.on('will-quit', () => {
+  remoteServer.stop();
 });
 

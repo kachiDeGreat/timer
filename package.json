@@ -1,7 +1,7 @@
 {
   "name": "stagetimer-pro",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Professional Stage & Studio Countdown Timer with Automated External Projector Output",
   "author": "StageTimer Pro Team <contact@stagetimer.pro>",
   "main": "electron/main.cjs",
@@ -15,18 +15,22 @@
     "electron:dev": "concurrently -k \"vite\" \"electron electron/main.cjs --no-sandbox\"",
     "build:linux": "npm run build && electron-builder --linux AppImage deb",
     "build:win": "npm run build && electron-builder --win nsis portable",
-    "build:mac": "npm run build && electron-builder --mac dmg zip",
+    "build:mac": "npm run build && electron-builder --mac zip",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "lucide-react": "^1.61.0",
+    "qrcode": "^1.5.4",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
     "cross-env": "^10.1.0",
@@ -47,6 +51,7 @@
       "dist/**/*",
       "electron/**/*",
       "build/**/*",
+      "node_modules/ws/**/*",
       "package.json"
     ],
     "linux": {
@@ -61,7 +66,6 @@
       "maintainer": "StageTimer Pro Team <contact@stagetimer.pro>",
       "synopsis": "Professional Stage & Studio Countdown Timer"
     },
-
     "win": {
       "target": [
         "nsis",
@@ -71,16 +75,10 @@
     },
     "mac": {
       "target": [
-        "dmg",
         "zip"
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.utilities"
-    },
-    "dmg": {
-      "background": null,
-      "backgroundColor": "#121212"
     }
   }
 }
-

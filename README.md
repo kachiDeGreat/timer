@@ -36,7 +36,15 @@ When the countdown reaches `00:00`:
 
 
 
-### 4. Cross-Platform Desktop Application (Ubuntu / Linux, Windows, macOS)
+### 4. Canva "Drift" Multi-Shade Red "UP NEXT" Stage Alert
+- **Automated Presenter Cues**: Keeps the speaker or worship leader informed of what segment is coming up next in the queue (e.g., Praise -> Offering -> Sermon).
+- **Cinematic Red Drift Motion**: Layered diagonal ribbons in multiple shades of red (deep wine `#450a0a`, rich crimson `#991b1b`, and vivid scarlet `#dc2626` with specular sheen) sweep across the screen in a staggered, fluid motion.
+- **5-Second Auto-Dismiss**: Displays `▲ UP NEXT`, the next item's title in massive bold letters, and a live countdown pill for 5 seconds before drifting away and returning to the countdown digits.
+- **Customizable Triggers**:
+  - Automatically triggers at the configured alert time (default `01:00` remaining; configurable to `2:00`, `1:30`, `1:00`, `0:45`, `0:30`, or `Disabled`).
+  - Operators can manually flash `Cue Up Next (5s)` from the Control Surface or queue slots anytime.
+
+### 5. Cross-Platform Desktop Application (Ubuntu / Linux, Windows, macOS)
 - **Automatic External Projector Detection**: Just like EasyWorship, ProPresenter, and pro broadcast software, when you click **"Open Projector Screen"**, it detects whether an HDMI monitor, TV, or projector is connected.
 - **Instant Fullscreen Coverage**: If an external display is plugged in, the projector window automatically opens directly on that display in borderless fullscreen mode — covering the entire TV without requiring manual dragging or pressing F11!
 - **Dynamic Hotplug Migration**: If you open the projector window on your primary screen and plug in an HDMI cable afterwards, the window automatically detects the new display and jumps directly to the TV in fullscreen.
@@ -61,19 +69,19 @@ npm run electron
 npm run build:linux
 ```
 The built Linux installers are generated inside the `release/` folder:
-- `StageTimer Pro-1.0.1.AppImage` (Run directly with `chmod +x` and double-click)
-- `stagetimer-pro_1.0.1_amd64.deb` (Install on Ubuntu via `sudo dpkg -i release/stagetimer-pro_1.0.1_amd64.deb`)
+- `StageTimer Pro-1.0.3.AppImage` (Run directly with `chmod +x` and double-click)
+- `stagetimer-pro_1.0.3_amd64.deb` (Install on Ubuntu via `sudo dpkg -i release/stagetimer-pro_1.0.3_amd64.deb`)
 - `release/linux-unpacked/` (Portable standalone executable folder)
 
 ### 🪟 Windows (.EXE Setup Installer & Portable)
 The Windows binaries are generated in the `release/` folder:
-- `StageTimer Pro Setup 1.0.1.exe` (Standard Windows installation wizard — double-click to install)
-- `StageTimer Pro-1.0.1-win.zip` (Portable ZIP package containing `StageTimer Pro.exe`)
+- `StageTimer Pro Setup 1.0.3.exe` (Standard Windows installation wizard — double-click to install)
+- `StageTimer Pro 1.0.3.exe` (Standalone portable executable — runs without installation)
 - `release/win-unpacked/StageTimer Pro.exe` (Direct standalone executable)
 
 ### 🍎 macOS (.APP & ZIP)
 The macOS binaries are generated in the `release/` folder:
-- `StageTimer Pro-1.0.1-mac.zip` (macOS distribution ZIP containing `StageTimer Pro.app`)
+- `StageTimer Pro-1.0.3-mac.zip` (macOS distribution ZIP containing `StageTimer Pro.app`)
 - `release/mac/StageTimer Pro.app` (macOS Application bundle)
 
 
