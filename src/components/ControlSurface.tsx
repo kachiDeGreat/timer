@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { ProjectorDisplay } from './ProjectorDisplay';
 import { CountdownQueue } from './CountdownQueue';
@@ -19,6 +19,7 @@ import {
   BookmarkPlus,
 } from 'lucide-react';
 
+
 export const ControlSurface: React.FC = () => {
   const {
     state,
@@ -37,6 +38,63 @@ export const ControlSurface: React.FC = () => {
     playNextInQueue,
     loadNextInQueueToStage,
   } = useTimer();
+
+  // Desktop display hardware status (Electron)
+  const [displayStatus, setDisplayStatus] = useState<{
+    hasExternal: boolean;
+    label?: string;
+    isProjectorOpen: boolean;
+    isElectron: boolean;
+  }>({
+    hasExternal: false,
+    isProjectorOpen: false,
+    isElectron: Boolean(window.electronAPI?.isElectron),
+  });
+
+  const [launchNotice, setLaunchNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (window.electronAPI?.isElectron) {
+      window.electronAPI.getDisplays().then((data) => {
+        setDisplayStatus({
+          hasExternal: data.hasExternal,
+          label: data.externalDisplay?.label || 'External TV / Projector',
+          isProjectorOpen: data.isProjectorOpen,
+          isElectron: true,
+        });
+      });
+
+      const unsubDisplays = window.electronAPI.onDisplayChange((data) => {
+        setDisplayStatus((prev) => ({
+          ...prev,
+          hasExternal: data.hasExternal,
+          label: data.externalDisplay?.label || 'External TV / Projector',
+          isProjectorOpen: data.isProjectorOpen,
+        }));
+      });
+
+      const unsubProjector = window.electronAPI.onProjectorStateChange((isOpen) => {
+        setDisplayStatus((prev) => ({
+          ...prev,
+          isProjectorOpen: isOpen,
+        }));
+      });
+
+      return () => {
+        unsubDisplays();
+        unsubProjector();
+      };
+    }
+  }, []);
+
+  const handleLaunchProjector = async () => {
+    const result = await launchProjectorWindow();
+    if (result?.message) {
+      setLaunchNotice(result.message);
+      setTimeout(() => setLaunchNotice(null), 5000);
+    }
+  };
+
 
   // Builder form inputs: Hours, Minutes, Seconds, Label
   const [inputHours, setInputHours] = useState<number>(state.queuedHours || 0);
@@ -176,9 +234,37 @@ export const ControlSurface: React.FC = () => {
         <div className="topbar-left">
           <span className="app-title">STAGE TIMER PRO</span>
           <span className={`status-chip chip-${state.status}`}>{getStatusLabel()}</span>
+
+          {displayStatus.isElectron && (
+            <div
+              className={`display-badge ${
+                displayStatus.hasExternal ? 'badge-hdmi-connected' : 'badge-hdmi-ready'
+              }`}
+              title={
+                displayStatus.hasExternal
+                  ? `External display detected: ${displayStatus.label}. Projector screen automatically projects in fullscreen here!`
+                  : 'Single display. Connect an HDMI / external display and projector screen will automatically migrate to it.'
+              }
+            >
+              <span
+                className={`status-indicator-dot ${
+                  displayStatus.hasExternal ? 'dot-green' : 'dot-dim'
+                }`}
+              />
+              <span className="display-badge-label">
+                {displayStatus.hasExternal ? 'HDMI DISPLAY DETECTED' : 'SINGLE DISPLAY (AUTO-HDMI READY)'}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="topbar-right">
+          {launchNotice && (
+            <span className="topbar-notice" role="status">
+              {launchNotice}
+            </span>
+          )}
+
           <button
             type="button"
             className={`material-btn ${state.isBlackout ? 'btn-blackout-active' : 'btn-secondary'}`}
@@ -192,15 +278,24 @@ export const ControlSurface: React.FC = () => {
 
           <button
             type="button"
-            className="material-btn btn-secondary"
-            onClick={launchProjectorWindow}
+            className={`material-btn ${displayStatus.isProjectorOpen ? 'btn-projector-active' : 'btn-secondary'}`}
+            onClick={handleLaunchProjector}
             id="btn-launch-projector"
+            title={
+              displayStatus.isProjectorOpen
+                ? 'Projector is currently open (Click to refocus / refresh external output)'
+                : 'Open Stage Display on External Projector or Monitor'
+            }
           >
             <Tv size={16} />
-            <span>Open Projector Screen</span>
+            <span>
+              {displayStatus.isProjectorOpen ? 'Projector: Active' : 'Open Projector Screen'}
+            </span>
+            {displayStatus.isProjectorOpen && <span className="projector-live-indicator" />}
           </button>
         </div>
       </header>
+
 
       {/* Main Broadcast Grid: 3-Column Zero-Scroll Layout */}
       <div className="surface-grid">

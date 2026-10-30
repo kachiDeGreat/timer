@@ -9,6 +9,23 @@ export interface ScreenLaunchResult {
  * or open as a dedicated popup window ready to drag to a second monitor.
  */
 export async function launchProjectorWindow(): Promise<ScreenLaunchResult> {
+  // 1. If running inside Electron desktop application:
+  if (window.electronAPI?.isElectron) {
+    try {
+      await window.electronAPI.openProjector();
+      const displayData = await window.electronAPI.getDisplays();
+      return {
+        success: true,
+        message: displayData.hasExternal
+          ? 'Launched directly on external display in full screen!'
+          : 'Launched projector window on main screen. (Plugging in HDMI will auto-switch to TV/Projector!)',
+        isExtended: displayData.hasExternal,
+      };
+    } catch (err) {
+      console.warn('Electron openProjector error:', err);
+    }
+  }
+
   const projectorUrl = `${window.location.origin}${window.location.pathname}?view=projector&autoFullscreen=1`;
 
   // 1. Check for Window Management API (Chrome, Edge, Opera)

@@ -98,6 +98,9 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (channelRef.current) {
         channelRef.current.postMessage({ type: 'SYNC_STATE', payload: newState });
       }
+      if (window.electronAPI?.sendState) {
+        window.electronAPI.sendState(newState);
+      }
     } catch (e) {
       console.warn('Broadcast failed:', e);
     }
@@ -132,6 +135,18 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('BroadcastChannel error:', err);
     }
 
+    let unsubElectron: (() => void) | undefined;
+    if (window.electronAPI?.onStateUpdate) {
+      unsubElectron = window.electronAPI.onStateUpdate((incoming: TimerState) => {
+        setState((prev) => {
+          if (incoming && incoming.lastUpdated >= prev.lastUpdated) {
+            return incoming;
+          }
+          return prev;
+        });
+      });
+    }
+
     const handleStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
@@ -146,9 +161,11 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     window.addEventListener('storage', handleStorage);
     return () => {
       if (bc) bc.close();
+      if (unsubElectron) unsubElectron();
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
+
 
   // Interval timer for drift-free countdown
   useEffect(() => {

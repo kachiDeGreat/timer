@@ -36,22 +36,51 @@ When the countdown reaches `00:00`:
 
 
 
-### 4. Multi-Screen Window Management
-- **One-Click Extended Screen Placement**: Uses the browser's Window Management API (`getScreenDetails()`) to automatically detect secondary monitors (TV/Projector) and position the output window directly on it.
-- **Fullscreen Mode**: Press `F11`, double-click, or click the fullscreen button in the projector window.
-- **OBS Studio Integration**: Add as a Browser Source using URL `http://localhost:5174/?view=projector`.
+### 4. Cross-Platform Desktop Application (Ubuntu / Linux, Windows, macOS)
+- **Automatic External Projector Detection**: Just like EasyWorship, ProPresenter, and pro broadcast software, when you click **"Open Projector Screen"**, it detects whether an HDMI monitor, TV, or projector is connected.
+- **Instant Fullscreen Coverage**: If an external display is plugged in, the projector window automatically opens directly on that display in borderless fullscreen mode — covering the entire TV without requiring manual dragging or pressing F11!
+- **Dynamic Hotplug Migration**: If you open the projector window on your primary screen and plug in an HDMI cable afterwards, the window automatically detects the new display and jumps directly to the TV in fullscreen.
+- **Dual-Engine Sync**: Synchronized via both high-speed Electron IPC and browser BroadcastChannel for zero latency and zero drift.
+- **Double-Click Fullscreen**: Double-clicking the projector display toggles fullscreen anytime.
+- **Top Bar Hardware Indicator**: Real-time status badge showing `🟢 HDMI DISPLAY DETECTED` or `⚪ SINGLE DISPLAY (AUTO-HDMI READY)`.
 
 ---
 
-## 🚀 Running the Project
+## 🚀 Running & Building
+
+### 🖥️ Desktop Application (Ubuntu / Linux First)
 
 ```bash
-# 1. Navigate to the timer directory
-cd "/home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer"
+# 1. Run desktop app in development mode (hot reloading)
+npm run electron:dev
 
-# 2. Start the development server
-npm run dev
+# 2. Run desktop app pointing directly to the build
+npm run electron
+
+# 3. Build standalone Ubuntu / Linux packages (AppImage + .deb)
+npm run build:linux
+```
+The built Linux installers are generated inside the `release/` folder:
+- `StageTimer Pro-1.0.0.AppImage` (Run directly with `chmod +x` and double-click)
+- `stagetimer-pro_1.0.0_amd64.deb` (Install on Ubuntu via `sudo dpkg -i release/stagetimer-pro_1.0.0_amd64.deb`)
+- `release/linux-unpacked/` (Portable standalone executable folder)
+
+### 🪟 Windows Build
+```bash
+# Build Windows installer (.exe) & portable binary
+npm run build:win
 ```
 
-- **Control Surface**: `http://localhost:5174/`
-- **Projector / TV Output**: `http://localhost:5174/?view=projector`
+### 🍎 macOS Build
+```bash
+# Build macOS .dmg package
+npm run build:mac
+```
+
+### 🌐 Web Browser Mode
+```bash
+npm run dev
+```
+- **Control Surface**: `http://localhost:5173/`
+- **Projector / TV Output**: `http://localhost:5173/?view=projector`
+

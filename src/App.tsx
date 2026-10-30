@@ -11,8 +11,9 @@ const MainRouter: React.FC = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const view = params.get('view');
-    const autoFs = params.get('autoFullscreen');
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#\/?/, ''));
+    const view = params.get('view') || hashParams.get('view');
+    const autoFs = params.get('autoFullscreen') || hashParams.get('autoFullscreen');
 
     if (view === 'projector') {
       setIsProjectorView(true);
@@ -44,11 +45,22 @@ const MainRouter: React.FC = () => {
 
   if (isProjectorView) {
     return (
-      <div className="projector-page-container">
+      <div
+        className="projector-page-container"
+        onDoubleClick={() => {
+          if (window.electronAPI?.toggleProjectorFullscreen) {
+            window.electronAPI.toggleProjectorFullscreen();
+          } else {
+            toggleFullScreen();
+          }
+        }}
+        title="Stage Display Output (Double-click to toggle fullscreen)"
+      >
         <ProjectorDisplay state={state} isPreview={false} />
       </div>
     );
   }
+
 
   return <ControlSurface />;
 };

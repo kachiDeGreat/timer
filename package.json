@@ -1,13 +1,22 @@
 {
-  "name": "timer",
+  "name": "stagetimer-pro",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Professional Stage & Studio Countdown Timer with Automated External Projector Output",
+  "author": "StageTimer Pro Team <contact@stagetimer.pro>",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron": "electron electron/main.cjs --no-sandbox",
+    "electron:dev": "concurrently -k \"vite\" \"electron electron/main.cjs --no-sandbox\"",
+    "build:linux": "npm run build && electron-builder --linux AppImage deb",
+    "build:win": "npm run build && electron-builder --win nsis portable",
+    "build:mac": "npm run build && electron-builder --mac dmg",
+    "dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "lucide-react": "^1.61.0",
@@ -19,8 +28,45 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "oxlint": "^1.88.0",
     "typescript": "~6.0.3",
     "vite": "^8.3.4"
+  },
+  "build": {
+    "appId": "com.stagetimer.pro",
+    "productName": "StageTimer Pro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "maintainer": "StageTimer Pro Team <contact@stagetimer.pro>",
+      "synopsis": "Professional Stage & Studio Countdown Timer"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.utilities"
+    }
   }
 }
