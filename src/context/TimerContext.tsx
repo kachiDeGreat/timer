@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_TIMER_STATE } from '../types/timer';
-import type { TimerState, StageColor } from '../types/timer';
+import type { TimerState, StageColor, AutoAdvanceMode, QueuedTimerItem } from '../types/timer';
 import { formatTime } from '../utils/time';
 
 const STORAGE_KEY = 'STAGE_TIMER_STATE_V2';
@@ -23,6 +23,18 @@ interface TimerContextValue {
   adjustRemainingTime: (deltaSeconds: number) => void;
   setLiveDuration: (hours: number, minutes: number, seconds?: number) => void;
   setColorScheme: (color: StageColor) => void;
+
+  // Multi-timer queue (up to 5 items)
+  addToQueue: (hours: number, minutes: number, seconds?: number, title?: string) => boolean;
+  removeFromQueue: (id: string) => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
+  updateQueueItemTitle: (id: string, title: string) => void;
+  clearQueue: () => void;
+  playQueueItem: (id: string) => void;
+  loadQueueItemToStage: (id: string) => void;
+  playNextInQueue: () => void;
+  loadNextInQueueToStage: () => void;
+  setAutoAdvanceMode: (mode: AutoAdvanceMode) => void;
 }
 
 const TimerContext = createContext<TimerContextValue | null>(null);
@@ -32,6 +44,17 @@ function loadInitialState(): TimerState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      // Filter out any leftover hardcoded seed items ('q-1', 'q-2') so queue defaults to completely empty
+      const rawQueue: QueuedTimerItem[] = Array.isArray(parsed.timerQueue)
+        ? parsed.timerQueue
+        : [];
+      const timerQueue = rawQueue.filter((item) => item.id !== 'q-1' && item.id !== 'q-2');
+      const autoAdvanceMode: AutoAdvanceMode = parsed.autoAdvanceMode || 'manual';
+      const activeQueueItemId =
+        parsed.activeQueueItemId === 'q-1' || parsed.activeQueueItemId === 'q-2'
+          ? null
+          : parsed.activeQueueItemId || null;
+
       if (parsed.status === 'running' && parsed.targetEndTime) {
         const remaining = Math.max(0, Math.ceil((parsed.targetEndTime - Date.now()) / 1000));
         return {
@@ -41,6 +64,9 @@ function loadInitialState(): TimerState {
           remainingSeconds: remaining,
           status: remaining > 0 ? 'running' : 'finished',
           finishedAt: remaining > 0 ? null : (parsed.finishedAt || Date.now()),
+          timerQueue,
+          autoAdvanceMode,
+          activeQueueItemId,
         };
       }
       return {
@@ -48,6 +74,9 @@ function loadInitialState(): TimerState {
         ...parsed,
         queuedHours: parsed.queuedHours || 0,
         finishedAt: parsed.finishedAt || null,
+        timerQueue,
+        autoAdvanceMode,
+        activeQueueItemId,
       };
     }
   } catch (e) {
@@ -421,6 +450,193 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }));
   }, [updateStateAndBroadcast]);
 
+  // Multi-timer queue management (up to 5 items)
+  const addToQueue = useCallback(
+    (hours: number, minutes: number, seconds: number = 0, title?: string) => {
+      const current = stateRef.current;
+      const queue = current.timerQueue || [];
+      if (queue.length >= 5) {
+        return false;
+      }
+
+      const clampedHrs = Math.max(0, Math.min(99, hours));
+      const clampedMins = Math.max(0, Math.min(59, minutes));
+      const clampedSecs = Math.max(0, Math.min(59, seconds));
+      const total = clampedHrs * 3600 + clampedMins * 60 + clampedSecs;
+      if (total <= 0) return false;
+
+      const newId = `q-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const formatted = formatTime(total).text;
+      const itemTitle = title?.trim() || `${formatted} Countdown`;
+
+      const newItem: QueuedTimerItem = {
+        id: newId,
+        title: itemTitle,
+        hours: clampedHrs,
+        minutes: clampedMins,
+        seconds: clampedSecs,
+        totalSeconds: total,
+      };
+
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        timerQueue: [...(prev.timerQueue || []), newItem],
+        lastUpdated: Date.now(),
+        lastAction: `Added "${itemTitle}" to Queue`,
+      }));
+      return true;
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const removeFromQueue = useCallback(
+    (id: string) => {
+      updateStateAndBroadcast((prev) => {
+        const filtered = (prev.timerQueue || []).filter((item) => item.id !== id);
+        return {
+          ...prev,
+          timerQueue: filtered,
+          activeQueueItemId: prev.activeQueueItemId === id ? null : prev.activeQueueItemId,
+          lastUpdated: Date.now(),
+          lastAction: 'Removed timer from Queue',
+        };
+      });
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const reorderQueue = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      updateStateAndBroadcast((prev) => {
+        const queue = [...(prev.timerQueue || [])];
+        if (fromIndex < 0 || fromIndex >= queue.length || toIndex < 0 || toIndex >= queue.length) {
+          return prev;
+        }
+        const [moved] = queue.splice(fromIndex, 1);
+        queue.splice(toIndex, 0, moved);
+        return {
+          ...prev,
+          timerQueue: queue,
+          lastUpdated: Date.now(),
+        };
+      });
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const updateQueueItemTitle = useCallback(
+    (id: string, title: string) => {
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        timerQueue: (prev.timerQueue || []).map((item) =>
+          item.id === id ? { ...item, title: title.trim() || item.title } : item
+        ),
+        lastUpdated: Date.now(),
+      }));
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const clearQueue = useCallback(() => {
+    updateStateAndBroadcast((prev) => ({
+      ...prev,
+      timerQueue: [],
+      activeQueueItemId: null,
+      lastUpdated: Date.now(),
+      lastAction: 'Cleared Queue',
+    }));
+  }, [updateStateAndBroadcast]);
+
+  const playQueueItem = useCallback(
+    (id: string) => {
+      const current = stateRef.current;
+      const item = (current.timerQueue || []).find((q) => q.id === id);
+      if (!item) return;
+
+      const now = Date.now();
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        activeQueueItemId: id,
+        totalSeconds: item.totalSeconds,
+        remainingSeconds: item.totalSeconds,
+        status: 'running',
+        targetEndTime: now + item.totalSeconds * 1000,
+        finishedAt: null,
+        isBlackout: false,
+        lastUpdated: now,
+        lastAction: `Started ${item.title}`,
+      }));
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const loadQueueItemToStage = useCallback(
+    (id: string) => {
+      const current = stateRef.current;
+      const item = (current.timerQueue || []).find((q) => q.id === id);
+      if (!item) return;
+
+      const now = Date.now();
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        activeQueueItemId: id,
+        totalSeconds: item.totalSeconds,
+        remainingSeconds: item.totalSeconds,
+        status: 'idle',
+        targetEndTime: null,
+        finishedAt: null,
+        isBlackout: false,
+        lastUpdated: now,
+        lastAction: `Loaded ${item.title} to Stage (Ready)`,
+      }));
+    },
+    [updateStateAndBroadcast]
+  );
+
+  const playNextInQueue = useCallback(() => {
+    const current = stateRef.current;
+    const queue = current.timerQueue || [];
+    if (queue.length === 0) return;
+
+    const currentIndex = queue.findIndex((item) => item.id === current.activeQueueItemId);
+    const nextItem =
+      currentIndex >= 0 && currentIndex < queue.length - 1
+        ? queue[currentIndex + 1]
+        : queue[0];
+
+    if (nextItem) {
+      playQueueItem(nextItem.id);
+    }
+  }, [playQueueItem]);
+
+  const loadNextInQueueToStage = useCallback(() => {
+    const current = stateRef.current;
+    const queue = current.timerQueue || [];
+    if (queue.length === 0) return;
+
+    const currentIndex = queue.findIndex((item) => item.id === current.activeQueueItemId);
+    const nextItem =
+      currentIndex >= 0 && currentIndex < queue.length - 1
+        ? queue[currentIndex + 1]
+        : queue[0];
+
+    if (nextItem) {
+      loadQueueItemToStage(nextItem.id);
+    }
+  }, [loadQueueItemToStage]);
+
+  const setAutoAdvanceMode = useCallback(
+    (mode: AutoAdvanceMode) => {
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        autoAdvanceMode: mode,
+        lastUpdated: Date.now(),
+        lastAction: `Mode: ${mode === 'manual' ? 'Manual' : mode === 'auto-ready' ? 'Auto-Load Ready' : 'Auto-Start Next'}`,
+      }));
+    },
+    [updateStateAndBroadcast]
+  );
+
   const value: TimerContextValue = {
     state,
     queueTime,
@@ -438,6 +654,16 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     adjustRemainingTime,
     setLiveDuration,
     setColorScheme,
+    addToQueue,
+    removeFromQueue,
+    reorderQueue,
+    updateQueueItemTitle,
+    clearQueue,
+    playQueueItem,
+    loadQueueItemToStage,
+    playNextInQueue,
+    loadNextInQueueToStage,
+    setAutoAdvanceMode,
   };
 
   return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;

@@ -2,6 +2,17 @@ export type TimerStatus = 'idle' | 'running' | 'paused' | 'finished';
 
 export type StageColor = 'white' | 'blue';
 
+export type AutoAdvanceMode = 'manual' | 'auto-ready' | 'auto-start';
+
+export interface QueuedTimerItem {
+  id: string;
+  title: string;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  totalSeconds: number;
+}
+
 export interface TimerState {
   queuedHours: number;
   queuedMinutes: number;
@@ -15,6 +26,10 @@ export interface TimerState {
   colorScheme: StageColor;
   isBlackout: boolean;
   lastAction?: string;
+  // Multi-timer queue (up to 5 items)
+  timerQueue: QueuedTimerItem[];
+  activeQueueItemId: string | null;
+  autoAdvanceMode: AutoAdvanceMode;
 }
 
 export const DEFAULT_TIMER_STATE: TimerState = {
@@ -30,5 +45,8 @@ export const DEFAULT_TIMER_STATE: TimerState = {
   colorScheme: 'white',
   isBlackout: false,
   lastAction: 'Initialized (10:00)',
+  timerQueue: [],
+  activeQueueItemId: null,
+  autoAdvanceMode: 'manual',
 };
 

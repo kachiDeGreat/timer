@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTimer } from '../context/TimerContext';
 import { ProjectorDisplay } from './ProjectorDisplay';
+import { CountdownQueue } from './CountdownQueue';
 import { launchProjectorWindow } from '../utils/screen';
 import { formatTime } from '../utils/time';
 import {
@@ -14,6 +15,8 @@ import {
   MonitorCheck,
   Eye,
   EyeOff,
+  FastForward,
+  BookmarkPlus,
 } from 'lucide-react';
 
 export const ControlSurface: React.FC = () => {
@@ -30,12 +33,16 @@ export const ControlSurface: React.FC = () => {
     addTimeToLive,
     subtractTimeFromLive,
     setColorScheme,
+    addToQueue,
+    playNextInQueue,
+    loadNextInQueueToStage,
   } = useTimer();
 
-  // Queue form inputs: Hours, Minutes, Seconds
+  // Builder form inputs: Hours, Minutes, Seconds, Label
   const [inputHours, setInputHours] = useState<number>(state.queuedHours || 0);
   const [inputMins, setInputMins] = useState<number>(state.queuedMinutes || 10);
   const [inputSecs, setInputSecs] = useState<number>(state.queuedSeconds || 0);
+  const [inputTitle, setInputTitle] = useState<string>('');
 
   // Accordion state: 'add' | 'subtract'
   const [accordionMode, setAccordionMode] = useState<'add' | 'subtract'>('add');
@@ -50,18 +57,33 @@ export const ControlSurface: React.FC = () => {
   const isRunning = state.status === 'running';
   const isPaused = state.status === 'paused';
 
-  // Apply preset to queue
-  const applyPreset = (h: number, m: number, s: number) => {
+  const queue = state.timerQueue || [];
+  const activeIndex = queue.findIndex((item) => item.id === state.activeQueueItemId);
+  const nextItem =
+    activeIndex >= 0 && activeIndex < queue.length - 1
+      ? queue[activeIndex + 1]
+      : activeIndex === -1 && queue.length > 0
+      ? queue[0]
+      : null;
+
+  // Apply preset to builder
+  const applyPreset = (h: number, m: number, s: number, label?: string) => {
     setInputHours(h);
     setInputMins(m);
     setInputSecs(s);
+    if (label && !inputTitle) {
+      setInputTitle(label);
+    }
     queueTime(h, m, s);
   };
 
-  // Submit queue form
-  const handleQueueSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    queueTime(inputHours, inputMins, inputSecs);
+  // Add current builder time to queue
+  const handleAddToQueue = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const success = addToQueue(inputHours, inputMins, inputSecs, inputTitle);
+    if (success) {
+      setInputTitle('');
+    }
   };
 
   // Quick chips for Add / Subtract
@@ -79,20 +101,20 @@ export const ControlSurface: React.FC = () => {
 
   // Presets including minute and hour options
   const presets = [
-    { label: '5m', h: 0, m: 5, s: 0 },
-    { label: '10m', h: 0, m: 10, s: 0 },
-    { label: '15m', h: 0, m: 15, s: 0 },
-    { label: '20m', h: 0, m: 20, s: 0 },
-    { label: '30m', h: 0, m: 30, s: 0 },
-    { label: '45m', h: 0, m: 45, s: 0 },
-    { label: '1h', h: 1, m: 0, s: 0 },
-    { label: '1h 30m', h: 1, m: 30, s: 0 },
-    { label: '2h', h: 2, m: 0, s: 0 },
+    { label: '5m', h: 0, m: 5, s: 0, title: '5m Countdown' },
+    { label: '10m', h: 0, m: 10, s: 0, title: '10m Countdown' },
+    { label: '15m', h: 0, m: 15, s: 0, title: '15m Countdown' },
+    { label: '20m', h: 0, m: 20, s: 0, title: '20m Countdown' },
+    { label: '30m', h: 0, m: 30, s: 0, title: '30m Countdown' },
+    { label: '45m', h: 0, m: 45, s: 0, title: '45m Countdown' },
+    { label: '1h', h: 1, m: 0, s: 0, title: '1h Countdown' },
+    { label: '1h 30m', h: 1, m: 30, s: 0, title: '1h 30m Countdown' },
+    { label: '2h', h: 2, m: 0, s: 0, title: '2h Countdown' },
   ];
 
-  // Calculate formatted display strings: MM:SS under 60m, HH:MM:SS for 1h+
-  const queuedTotalSecs = (state.queuedHours || 0) * 3600 + (state.queuedMinutes || 0) * 60 + (state.queuedSeconds || 0);
-  const queuedDisplay = formatTime(queuedTotalSecs).text;
+  // Calculate formatted display strings
+  const builderTotalSecs = inputHours * 3600 + inputMins * 60 + inputSecs;
+  const builderDisplay = formatTime(builderTotalSecs > 0 ? builderTotalSecs : 600).text;
 
   const addTotalSecs = addHours * 3600 + addMins * 60 + addSecs;
   const addDisplay = `+${formatTime(addTotalSecs).text}`;
@@ -140,19 +162,20 @@ export const ControlSurface: React.FC = () => {
       }
       return `Stage: Overtime Count-Up (-${formatTime(currentOvertime).text})`;
     }
+    const activeItem = queue.find((q) => q.id === state.activeQueueItemId);
+    if (activeItem) {
+      return `Active #${queue.indexOf(activeItem) + 1}: ${activeItem.title} (${state.status.toUpperCase()})`;
+    }
     return state.lastAction || 'Standard Time Display';
   };
-
 
   return (
     <div className="surface-viewport">
       {/* Top Bar */}
       <header className="material-topbar">
         <div className="topbar-left">
-          <span className="app-title">STAGE TIMER</span>
-          <span className={`status-chip chip-${state.status}`}>
-            {getStatusLabel()}
-          </span>
+          <span className="app-title">STAGE TIMER PRO</span>
+          <span className={`status-chip chip-${state.status}`}>{getStatusLabel()}</span>
         </div>
 
         <div className="topbar-right">
@@ -179,18 +202,15 @@ export const ControlSurface: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Grid: Fits cleanly on a single screen without scrolling */}
+      {/* Main Broadcast Grid: 3-Column Zero-Scroll Layout */}
       <div className="surface-grid">
-        {/* Left Column: Preview & Transport Controls */}
+        {/* Column 1: Live Program Preview & Master Transport Controls */}
         <section className="preview-column">
           <div className="material-card preview-card">
             <div className="card-header">
               <span className="card-label">PROJECTOR PREVIEW</span>
-              <span className="card-meta">
-                {getPreviewMeta()}
-              </span>
+              <span className="card-meta">{getPreviewMeta()}</span>
             </div>
-
 
             <div className="preview-screen-box">
               <ProjectorDisplay
@@ -254,18 +274,81 @@ export const ControlSurface: React.FC = () => {
                 <span>RESET</span>
               </button>
             </div>
+
+            {/* Next in Queue Strip */}
+            {nextItem && (
+              <div className="next-queue-strip">
+                <div className="next-strip-info">
+                  <span className="next-strip-badge">UP NEXT:</span>
+                  <span className="next-strip-name">{nextItem.title}</span>
+                  <span className="next-strip-time">{formatTime(nextItem.totalSeconds).text}</span>
+                </div>
+                <div className="next-strip-actions">
+                  <button
+                    type="button"
+                    className="next-action-btn next-load-btn"
+                    onClick={loadNextInQueueToStage}
+                    title="Load next timer to stage in READY mode"
+                  >
+                    <MonitorCheck size={13} />
+                    <span>Load Ready</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="next-action-btn next-play-btn"
+                    onClick={playNextInQueue}
+                    title="Immediately jump to next timer and START"
+                  >
+                    <FastForward size={13} />
+                    <span>Play Next</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Display Color Settings Card */}
+          <div className="material-card compact-settings-card">
+            <div className="card-header">
+              <span className="card-label">STAGE DISPLAY COLOR</span>
+            </div>
+            <div className="color-toggle-group">
+              <button
+                type="button"
+                className={`color-toggle-btn ${state.colorScheme === 'white' ? 'active' : ''}`}
+                onClick={() => setColorScheme('white')}
+              >
+                <span className="swatch-circle swatch-white" />
+                <span>White Font</span>
+              </button>
+
+              <button
+                type="button"
+                className={`color-toggle-btn ${state.colorScheme === 'blue' ? 'active' : ''}`}
+                onClick={() => setColorScheme('blue')}
+              >
+                <span className="swatch-circle swatch-blue" />
+                <span>Blue Font</span>
+              </button>
+            </div>
           </div>
         </section>
 
-        {/* Right Column: Queue, Small Box & Add/Subtract Accordion */}
-        <aside className="control-column">
-          {/* Queue Time Card (with Hours : Minutes : Seconds) */}
-          <div className="material-card">
+        {/* Column 2: The 5-Item Countdown Playlist / Queue */}
+        <section className="queue-column">
+          <CountdownQueue />
+        </section>
+
+        {/* Column 3: Timer Builder & Live Adjustments */}
+        <aside className="builder-column">
+          {/* Builder Card */}
+          <div className="material-card builder-card">
             <div className="card-header">
-              <span className="card-label">QUEUE TIME (HH:MM:SS)</span>
+              <span className="card-label">TIMER BUILDER & STAGER</span>
             </div>
 
-            <form onSubmit={handleQueueSubmit} className="queue-form">
+            {/* Time Inputs */}
+            <form onSubmit={handleAddToQueue} className="queue-form">
               <div className="time-input-pair three-fields">
                 <div className="input-field">
                   <label htmlFor="input-hours">HOURS</label>
@@ -315,60 +398,94 @@ export const ControlSurface: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Optional Label Input */}
+              <div className="timer-title-field">
+                <label htmlFor="input-title">TIMER LABEL (OPTIONAL)</label>
+                <input
+                  id="input-title"
+                  type="text"
+                  placeholder="e.g. Sermon, Speaker 1, Announcements"
+                  value={inputTitle}
+                  onChange={(e) => setInputTitle(e.target.value)}
+                  maxLength={40}
+                />
+              </div>
+
+              {/* Presets */}
+              <div className="presets-block">
+                <span className="sub-label">QUICK PRESETS</span>
+                <div className="presets-row">
+                  {presets.map((p) => {
+                    const isActive =
+                      inputHours === p.h && inputMins === p.m && inputSecs === p.s;
+                    return (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className={`preset-chip ${isActive ? 'active' : ''}`}
+                        onClick={() => applyPreset(p.h, p.m, p.s, p.title)}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Primary Action: Add to Queue */}
+              <button
+                type="button"
+                className="material-btn btn-primary add-to-queue-btn"
+                onClick={() => handleAddToQueue()}
+                disabled={queue.length >= 5 || builderTotalSecs <= 0}
+                title={
+                  queue.length >= 5
+                    ? 'Queue is full (maximum 5 timers allowed)'
+                    : 'Add this countdown to the playlist queue'
+                }
+                id="btn-add-to-queue"
+              >
+                <BookmarkPlus size={16} />
+                <span>
+                  {queue.length >= 5 ? 'QUEUE FULL (5/5)' : `+ ADD TO QUEUE (${queue.length}/5)`}
+                </span>
+              </button>
+
+              {/* Direct Shoot to Stage (Bypass Queue) */}
+              <div className="direct-shoot-divider">
+                <span>OR SHOOT DIRECTLY TO STAGE</span>
+              </div>
+
+              <div className="staged-small-box">
+                <div className="small-box-info">
+                  <span className="small-box-label">DIRECT STAGE (BYPASS QUEUE)</span>
+                  <span className="small-box-digits">{builderDisplay}</span>
+                </div>
+                <div className="small-box-actions">
+                  <button
+                    type="button"
+                    className="small-box-action-btn btn-load-ready"
+                    onClick={() => loadQueueToStage(inputHours, inputMins, inputSecs)}
+                    title="Push this time directly to stage in Ready mode without queueing"
+                    id="btn-load-ready"
+                  >
+                    <MonitorCheck size={14} />
+                    <span>LOAD READY</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small-box-action-btn btn-start-live"
+                    onClick={pushQueueToLive}
+                    title="Immediately push this time to stage and START without queueing"
+                    id="btn-play-queued"
+                  >
+                    <Play size={14} fill="currentColor" />
+                    <span>START LIVE</span>
+                  </button>
+                </div>
+              </div>
             </form>
-
-            {/* Presets */}
-            <div className="presets-block">
-              <span className="sub-label">QUICK PRESETS</span>
-              <div className="presets-row">
-                {presets.map((p) => {
-                  const isActive =
-                    (state.queuedHours || 0) === p.h &&
-                    state.queuedMinutes === p.m &&
-                    state.queuedSeconds === p.s;
-                  return (
-                    <button
-                      key={p.label}
-                      type="button"
-                      className={`preset-chip ${isActive ? 'active' : ''}`}
-                      onClick={() => applyPreset(p.h, p.m, p.s)}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* THE SMALL BOX FOR QUEUED TIME WITH LOAD TO STAGE AND START BUTTONS */}
-            <div className="staged-small-box">
-              <div className="small-box-info">
-                <span className="small-box-label">STAGED DURATION</span>
-                <span className="small-box-digits">{queuedDisplay}</span>
-              </div>
-              <div className="small-box-actions">
-                <button
-                  type="button"
-                  className="small-box-action-btn btn-load-ready"
-                  onClick={() => loadQueueToStage(inputHours, inputMins, inputSecs)}
-                  title="Display this time on the stage screen in Ready state (waiting for speaker to start)"
-                  id="btn-load-ready"
-                >
-                  <MonitorCheck size={14} />
-                  <span>LOAD (READY)</span>
-                </button>
-                <button
-                  type="button"
-                  className="small-box-action-btn btn-start-live"
-                  onClick={pushQueueToLive}
-                  title="Immediately push to stage and begin countdown"
-                  id="btn-play-queued"
-                >
-                  <Play size={14} fill="currentColor" />
-                  <span>START</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Add / Subtract Accordion Card */}
@@ -415,7 +532,9 @@ export const ControlSurface: React.FC = () => {
                       min="0"
                       max="59"
                       value={addMins}
-                      onChange={(e) => setAddMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      onChange={(e) =>
+                        setAddMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
+                      }
                     />
                   </div>
                   <span className="colon">:</span>
@@ -426,17 +545,29 @@ export const ControlSurface: React.FC = () => {
                       min="0"
                       max="59"
                       value={addSecs}
-                      onChange={(e) => setAddSecs(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      onChange={(e) =>
+                        setAddSecs(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
+                      }
                     />
                   </div>
                 </div>
 
                 <div className="quick-chips-row">
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 1, 0)}>+1m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 5, 0)}>+5m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 15, 0)}>+15m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 30, 0)}>+30m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleAddChip(1, 0, 0)}>+1h</button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 1, 0)}>
+                    +1m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 5, 0)}>
+                    +5m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 15, 0)}>
+                    +15m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(0, 30, 0)}>
+                    +30m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleAddChip(1, 0, 0)}>
+                    +1h
+                  </button>
                 </div>
 
                 {/* SMALL BOX FOR ADD */}
@@ -481,7 +612,9 @@ export const ControlSurface: React.FC = () => {
                       min="0"
                       max="59"
                       value={subMins}
-                      onChange={(e) => setSubMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      onChange={(e) =>
+                        setSubMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
+                      }
                     />
                   </div>
                   <span className="colon">:</span>
@@ -492,17 +625,29 @@ export const ControlSurface: React.FC = () => {
                       min="0"
                       max="59"
                       value={subSecs}
-                      onChange={(e) => setSubSecs(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      onChange={(e) =>
+                        setSubSecs(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
+                      }
                     />
                   </div>
                 </div>
 
                 <div className="quick-chips-row">
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 1, 0)}>-1m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 5, 0)}>-5m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 15, 0)}>-15m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 30, 0)}>-30m</button>
-                  <button type="button" className="chip-btn" onClick={() => handleSubChip(1, 0, 0)}>-1h</button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 1, 0)}>
+                    -1m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 5, 0)}>
+                    -5m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 15, 0)}>
+                    -15m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(0, 30, 0)}>
+                    -30m
+                  </button>
+                  <button type="button" className="chip-btn" onClick={() => handleSubChip(1, 0, 0)}>
+                    -1h
+                  </button>
                 </div>
 
                 {/* SMALL BOX FOR SUBTRACT */}
@@ -524,32 +669,6 @@ export const ControlSurface: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Color Selection Card */}
-          <div className="material-card">
-            <div className="card-header">
-              <span className="card-label">STAGE DISPLAY COLOR</span>
-            </div>
-            <div className="color-toggle-group">
-              <button
-                type="button"
-                className={`color-toggle-btn ${state.colorScheme === 'white' ? 'active' : ''}`}
-                onClick={() => setColorScheme('white')}
-              >
-                <span className="swatch-circle swatch-white" />
-                <span>White Display</span>
-              </button>
-
-              <button
-                type="button"
-                className={`color-toggle-btn ${state.colorScheme === 'blue' ? 'active' : ''}`}
-                onClick={() => setColorScheme('blue')}
-              >
-                <span className="swatch-circle swatch-blue" />
-                <span>Blue Display</span>
-              </button>
-            </div>
           </div>
         </aside>
       </div>

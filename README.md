@@ -11,11 +11,19 @@ A professional, material-styled web countdown timer engineered for church servic
 - **Stage Projector Output ("The Program View")**: Clean, high-contrast, distraction-free display designed for external TVs, stage monitors, or projectors. Pure black background with massive, bold standard `MM:SS` digits.
 - **Zero-Latency Real-Time Sync**: Uses modern browser `BroadcastChannel` with `localStorage` fallback to instantly keep the control surface and projector window in sync without needing a backend server or network connection.
 
-### 2. Live Staging & Fast-Tracking Workflow
-- **Staged Small Box**: Whenever you select a preset or type a duration, it stages the time in the small preview box.
-  - **`LOAD (READY)`**: Pushes the time onto the stage projector in standby/armed mode without running (clears previous Time Up alerts and displays the new duration ready for the speaker).
-  - **`START`**: Pushes the time and immediately begins the countdown. If the timer is already running, it fast-tracks/jumps to the new duration instantly.
-- **Add / Remove Accordion**: Collapsible tool to add (`+30s`, `+1m`, `+2m 30s`, `+5m`) or deduct (`-30s`, `-1m`, `-2m`, `-5m`) time to/from the live clock.
+### 2. Multi-Timer Countdown Queue (Up to 5 Timers)
+- **5-Slot Playlist**: Pre-load up to five countdown times (e.g., 5 minutes, 2 minutes, 15 minutes, etc.) in a single unified dashboard. Starts empty by default.
+- **One-Click Play to Projector**: Each slot features a direct `PLAY` button that instantly pushes the countdown to the projector window and begins counting down.
+- **`LOAD (READY)` Mode**: Arm any slot directly onto the stage display in standby mode (ready for the speaker to take the stage).
+- **Completion Behavior**: When a countdown reaches `00:00`, it stays on Time Up alerts and overtime count-up until the operator clicks Play on the next queued timer.
+- **Interactive Queue Management**: Move timers up or down with reorder arrows, click to inline rename segments, or quick-add presets (`+2m`, `+5m`, `+10m`, `+15m`, `+30m`).
+
+### 3. Timer Builder & Direct Shoot Workflow
+- **`+ ADD TO QUEUE`**: Build custom durations (Hours : Minutes : Seconds) with segment labels and presets, and add them to the 5-item playlist queue.
+- **Direct Shoot (Bypass Queue)**: For emergency or one-off countdowns without queueing:
+  - **`LOAD READY`**: Push duration directly to the stage display in armed standby mode.
+  - **`START LIVE`**: Push duration directly to stage and begin countdown immediately.
+- **Add / Remove Accordion**: Collapsible tool to add (`+30s`, `+1m`, `+5m`, `+15m`, `+1h`) or deduct (`-30s`, `-1m`, `-5m`, `-15m`, `-1h`) time to/from the live clock while a speaker is on stage.
 - **Blackout Screen Mode**: Blank the TV display between speakers with a single click.
 
 ### 3. Time Up & Overtime Sequence
