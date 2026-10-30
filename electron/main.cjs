@@ -2,10 +2,11 @@ const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
 
 // Linux display server integration and optimizations
+// Forcing X11 enables exact multi-monitor positioning (which Wayland protocol forbids)
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox');
-  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-  app.commandLine.appendSwitch('enable-features', 'WaylandWindowDecorations');
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+  app.disableHardwareAcceleration();
 }
 
 let mainWindow = null;
@@ -117,7 +118,6 @@ function createOrFocusProjectorWindow() {
     show: false,
     frame: !isExternal,
     fullscreen: false,
-    opacity: isExternal ? 0 : 1,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     title: 'Stage Display — StageTimer Pro',
@@ -157,26 +157,15 @@ function createOrFocusProjectorWindow() {
   }
 
   if (isExternal) {
-    // Show inactive first, apply bounds to external display, then reveal and focus
-    projectorWindow.showInactive();
     projectorWindow.setBounds(targetDisplay.bounds);
+    projectorWindow.show();
 
     setTimeout(() => {
       if (projectorWindow && !projectorWindow.isDestroyed()) {
         projectorWindow.setBounds(targetDisplay.bounds);
-        projectorWindow.setOpacity(1);
         projectorWindow.focus();
       }
-    }, 120);
-
-    setTimeout(() => {
-      if (projectorWindow && !projectorWindow.isDestroyed()) {
-        const curBounds = projectorWindow.getBounds();
-        if (curBounds.x !== targetDisplay.bounds.x || curBounds.y !== targetDisplay.bounds.y) {
-          projectorWindow.setBounds(targetDisplay.bounds);
-        }
-      }
-    }, 350);
+    }, 100);
   } else {
     projectorWindow.show();
   }
