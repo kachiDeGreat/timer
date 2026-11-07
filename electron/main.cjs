@@ -464,6 +464,40 @@ ipcMain.handle('get-remote-info', () => {
   return remoteServer.getServerInfo();
 });
 
+ipcMain.handle('get-settings', () => {
+  const fs = require('fs');
+  const settingsPath = path.join(__dirname, '../settings.json');
+  try {
+    if (fs.existsSync(settingsPath)) {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+  } catch {}
+  return {
+    idleDisplayMode: 'zero',
+    clockFormat24: false,
+    autoAdvanceMode: 'manual',
+    upNextTriggerSeconds: 60,
+    colorScheme: 'white',
+    timerQueue: [],
+  };
+});
+
+ipcMain.handle('save-settings', (_event, newSettings) => {
+  const fs = require('fs');
+  const settingsPath = path.join(__dirname, '../settings.json');
+  try {
+    let current = {};
+    if (fs.existsSync(settingsPath)) {
+      current = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+    const updated = { ...current, ...newSettings };
+    fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
+    return { success: true, settings: updated };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.on('broadcast-state', (event, state) => {
   remoteServer.broadcastState(state);
   BrowserWindow.getAllWindows().forEach((win) => {

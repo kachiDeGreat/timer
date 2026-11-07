@@ -36,6 +36,8 @@ export interface ElectronAPI {
   getRemoteInfo?: () => Promise<RemoteServerInfo>;
   onRemoteAction?: (callback: (action: any) => void) => () => void;
   onRemoteClientsChange?: (callback: (count: number) => void) => () => void;
+  getSettings?: () => Promise<any>;
+  saveSettings?: (settings: any) => Promise<any>;
 }
 
 

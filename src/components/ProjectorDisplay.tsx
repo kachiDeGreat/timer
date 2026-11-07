@@ -1,11 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import type { TimerState } from '../types/timer';
+import { resolveStageColor } from '../types/timer';
 import { formatTime, formatNegativeTime, hasValidTimerLabel } from '../utils/time';
 
 interface ProjectorDisplayProps {
   state: TimerState;
   isPreview?: boolean;
   onPreviewClick?: () => void;
+}
+
+function formatDeviceClock(date: Date, is24: boolean): { time: string; period?: string } {
+  if (is24) {
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    return { time: `${h}:${m}` };
+  } else {
+    let hours = date.getHours();
+    const period = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const h = String(hours).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    return { time: `${h}:${m}`, period };
+  }
 }
 
 export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
@@ -19,13 +35,16 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
   // Real-time ticking for:
   // 1. "TIME UP" & overtime sequences when status === 'finished'
   // 2. "UP NEXT" 5-second alert countdown
+  // 3. Device clock ticking when status === 'idle' and idleDisplayMode === 'clock'
+  const isClockIdle = status === 'idle' && remainingSeconds === 0 && state.idleDisplayMode === 'clock';
+  const isAlerting = Boolean(
+    state.upNextAlertUntil &&
+    now < state.upNextAlertUntil &&
+    hasValidTimerLabel(state.upNextAlertTitle)
+  );
+
   useEffect(() => {
-    const isAlerting = Boolean(
-      state.upNextAlertUntil &&
-      Date.now() < state.upNextAlertUntil &&
-      hasValidTimerLabel(state.upNextAlertTitle)
-    );
-    if (status !== 'finished' && !isAlerting) return;
+    if (status !== 'finished' && !isAlerting && !isClockIdle) return;
 
     setNow(Date.now());
     const interval = setInterval(() => {
@@ -33,7 +52,7 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     }, 200);
 
     return () => clearInterval(interval);
-  }, [status, state.upNextAlertUntil, state.upNextAlertTitle]);
+  }, [status, isAlerting, isClockIdle]);
 
   if (state.isBlackout) {
     return (
@@ -61,6 +80,8 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
       hasValidTimerLabel(state.upNextAlertTitle)
     ) && !state.isBlackout;
 
+  // Cue banner rendering
+  let cueBannerNode: React.ReactNode = null;
   if (isUpNextActive) {
     let clockLabel = 'COUNTDOWN:';
     let clockVal = formatTime(remainingSeconds).text;
@@ -78,30 +99,23 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
       }
     }
 
-    return (
-      <div
-        className={`stage-screen-root is-upnext-alert ${
-          isPreview ? 'is-preview' : 'is-projector-window'
-        }`}
-        onClick={isPreview ? onPreviewClick : undefined}
-      >
-        <div className="drift-stage-banner">
-          {/* Multi-shade Red Drift Ribbons (News / Canva Drift Effect) */}
-          <div className="drift-layer drift-layer-deep" />
-          <div className="drift-layer drift-layer-crimson" />
-          <div className="drift-layer drift-layer-scarlet" />
-          <div className="drift-layer drift-layer-sheen" />
+    cueBannerNode = (
+      <div className="drift-stage-banner cue-active smooth-fade-in">
+        {/* Multi-shade Red Drift Ribbons (News / Canva Drift Effect) */}
+        <div className="drift-layer drift-layer-deep" />
+        <div className="drift-layer drift-layer-crimson" />
+        <div className="drift-layer drift-layer-scarlet" />
+        <div className="drift-layer drift-layer-sheen" />
 
-          {/* Drifting Content */}
-          <div className="drift-content">
-            <div className="drift-badge">
-              <span className="drift-badge-text">UP NEXT</span>
-            </div>
-            <div className="drift-title">{state.upNextAlertTitle}</div>
-            <div className="drift-clock-pill">
-              <span className="drift-clock-label">{clockLabel}</span>
-              <span className="drift-clock-val">{clockVal}</span>
-            </div>
+        {/* Drifting Content */}
+        <div className="drift-content">
+          <div className="drift-badge">
+            <span className="drift-badge-text">UP NEXT</span>
+          </div>
+          <div className="drift-title">{state.upNextAlertTitle}</div>
+          <div className="drift-clock-pill">
+            <span className="drift-clock-label">{clockLabel}</span>
+            <span className="drift-clock-val">{clockVal}</span>
           </div>
         </div>
       </div>
@@ -165,26 +179,59 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
         title={isPreview ? 'Click to toggle timer' : undefined}
       >
         {finishedContent}
+        {cueBannerNode}
       </div>
     );
   }
 
+  // Resolve active digit color (supports all presets + custom hex codes)
+  const resolvedDigitColor = resolveStageColor(colorScheme);
+
+  // IDLE CLOCK MODE: If idle at 00:00 and user chose "Device Clock", display the live device local clock!
+  if (isClockIdle) {
+    const { time: clockTimeStr, period: clockPeriod } = formatDeviceClock(
+      new Date(now),
+      Boolean(state.clockFormat24)
+    );
+    return (
+      <div
+        className={`stage-screen-root is-device-clock ${
+          isPreview ? 'is-preview' : 'is-projector-window'
+        }`}
+        onClick={isPreview ? onPreviewClick : undefined}
+        title={isPreview ? 'Device Clock (Current Time)' : undefined}
+      >
+        <div className="stage-digits-container">
+          <div className="stage-digits is-clock-digits" style={{ color: resolvedDigitColor }}>
+            <span className="clock-digits-time">{clockTimeStr}</span>
+            {clockPeriod && <span className="clock-period-tag">{clockPeriod}</span>}
+          </div>
+        </div>
+        {cueBannerNode}
+      </div>
+    );
+  }
 
   // Under 60 mins -> MM:SS; 60 mins and above -> HH:MM:SS
   const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
 
   return (
     <div
-      className={`stage-screen-root color-${colorScheme} ${
+      className={`stage-screen-root ${
         isPreview ? 'is-preview' : 'is-projector-window'
       }`}
       onClick={isPreview ? onPreviewClick : undefined}
       title={isPreview ? 'Click to toggle timer' : undefined}
     >
       <div className="stage-digits-container">
-        <div className={`stage-digits ${hasHours ? 'has-hours' : ''}`}>{formattedTime}</div>
+        <div
+          className={`stage-digits ${hasHours ? 'has-hours' : ''}`}
+          style={{ color: resolvedDigitColor }}
+        >
+          {formattedTime}
+        </div>
       </div>
+      {cueBannerNode}
     </div>
   );
 };
-

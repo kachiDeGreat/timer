@@ -9,6 +9,7 @@ import {
   Pause,
   Square,
   RotateCcw,
+  Clock,
   Tv,
   Plus,
   Minus,
@@ -20,8 +21,12 @@ import {
   Megaphone,
   BellRing,
   Smartphone,
+  FileText,
+  Settings,
 } from 'lucide-react';
 import { MobileRemoteModal } from './MobileRemoteModal';
+import { TimingReportModal } from './TimingReportModal';
+import { SettingsModal } from './SettingsModal';
 
 interface ControlSurfaceProps {
   onSwitchToRemote?: () => void;
@@ -38,19 +43,20 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
     resume,
     stop,
     reset,
+    setIdle,
     addTimeToLive,
     subtractTimeFromLive,
-    setColorScheme,
     addToQueue,
     playNextInQueue,
     loadNextInQueueToStage,
     triggerUpNextAlert,
     dismissUpNextAlert,
-    setUpNextTriggerSeconds,
     connectedClientsCount,
   } = useTimer();
 
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Desktop display hardware status (Electron)
   const [displayStatus, setDisplayStatus] = useState<{
@@ -119,7 +125,7 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
 
   // Builder form inputs: Hours, Minutes, Seconds, Label
   const [inputHours, setInputHours] = useState<number>(state.queuedHours || 0);
-  const [inputMins, setInputMins] = useState<number>(state.queuedMinutes || 10);
+  const [inputMins, setInputMins] = useState<number>(state.queuedMinutes || 0);
   const [inputSecs, setInputSecs] = useState<number>(state.queuedSeconds || 0);
   const [inputTitle, setInputTitle] = useState<string>('');
 
@@ -192,7 +198,7 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
 
   // Calculate formatted display strings
   const builderTotalSecs = inputHours * 3600 + inputMins * 60 + inputSecs;
-  const builderDisplay = formatTime(builderTotalSecs > 0 ? builderTotalSecs : 600).text;
+  const builderDisplay = formatTime(builderTotalSecs > 0 ? builderTotalSecs : 0).text;
 
   const addTotalSecs = addHours * 3600 + addMins * 60 + addSecs;
   const addDisplay = `+${formatTime(addTotalSecs).text}`;
@@ -301,6 +307,33 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
             </span>
           )}
 
+          {/* Timing Report Button */}
+          <button
+            type="button"
+            className="material-btn btn-secondary"
+            onClick={() => setIsReportModalOpen(true)}
+            id="btn-open-timing-report"
+            title="View & Print Event Timing Report and Session Audit Trail"
+          >
+            <FileText size={16} />
+            <span>Timing Report</span>
+            {state.timingReport && state.timingReport.length > 0 && (
+              <span className="report-count-badge">{state.timingReport.length}</span>
+            )}
+          </button>
+
+          {/* App Settings Button */}
+          <button
+            type="button"
+            className="material-btn btn-secondary"
+            onClick={() => setIsSettingsModalOpen(true)}
+            id="btn-open-settings"
+            title="Configure Default Idle Mode (00:00 vs Clock), Queue Transitions, and Stage Settings"
+          >
+            <Settings size={16} />
+            <span>Settings</span>
+          </button>
+
           {/* Mobile Remote Pairing Button */}
           <button
             type="button"
@@ -366,7 +399,7 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
                 isPreview={true}
                 onPreviewClick={() => {
                   if (isRunning) pause();
-                  else if (isPaused) resume();
+                  else if (isPaused || (state.status === 'idle' && state.remainingSeconds > 0)) resume();
                   else pushQueueToLive();
                 }}
               />
@@ -381,8 +414,13 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
                   type="button"
                   className="material-btn btn-primary"
                   onClick={() => {
-                    if (isPaused) resume();
-                    else pushQueueToLive();
+                    if (isPaused) {
+                      resume();
+                    } else if (state.status === 'idle' && state.remainingSeconds > 0) {
+                      resume();
+                    } else {
+                      pushQueueToLive();
+                    }
                   }}
                   id="btn-timer-run"
                 >
@@ -420,6 +458,18 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
               >
                 <RotateCcw size={16} />
                 <span>RESET</span>
+              </button>
+
+              <button
+                type="button"
+                className="material-btn btn-neutral btn-idle"
+                onClick={setIdle}
+                disabled={state.status === 'idle' && state.remainingSeconds === 0 && !state.activeQueueItemId}
+                id="btn-timer-idle"
+                title="Return stage screen to Idle mode (00:00 / Device Clock)"
+              >
+                <Clock size={16} />
+                <span>SET IDLE</span>
               </button>
             </div>
 
@@ -487,58 +537,6 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
                 </div>
               );
             })()}
-          </div>
-
-          {/* Stage Display Settings Card: Color Theme & Up Next Trigger */}
-          <div className="material-card compact-settings-card">
-            <div className="card-header">
-              <span className="card-label">STAGE DISPLAY SETTINGS</span>
-            </div>
-
-            <div className="stage-settings-grid">
-              {/* Up Next Trigger Selector */}
-              <div className="settings-field-box">
-                <span className="settings-field-title">AUTO UP NEXT ALERT:</span>
-                <select
-                  id="select-upnext-trigger"
-                  className="settings-select-dropdown"
-                  value={state.upNextTriggerSeconds ?? 60}
-                  onChange={(e) => setUpNextTriggerSeconds(parseInt(e.target.value, 10))}
-                  title="Choose when the '▲ UP NEXT' notification automatically pops up on stage"
-                >
-                  <option value={120}>At 2:00 Remaining</option>
-                  <option value={90}>At 1:30 Remaining</option>
-                  <option value={60}>At 1:00 Remaining (Default)</option>
-                  <option value={45}>At 0:45 Remaining</option>
-                  <option value={30}>At 0:30 Remaining</option>
-                  <option value={0}>Disabled (Manual Only)</option>
-                </select>
-              </div>
-
-              {/* Color Theme Selector */}
-              <div className="settings-field-box">
-                <span className="settings-field-title">COLOR THEME:</span>
-                <div className="color-toggle-group">
-                  <button
-                    type="button"
-                    className={`color-toggle-btn ${state.colorScheme === 'white' ? 'active' : ''}`}
-                    onClick={() => setColorScheme('white')}
-                  >
-                    <span className="swatch-circle swatch-white" />
-                    <span>White</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`color-toggle-btn ${state.colorScheme === 'blue' ? 'active' : ''}`}
-                    onClick={() => setColorScheme('blue')}
-                  >
-                    <span className="swatch-circle swatch-blue" />
-                    <span>Blue</span>
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -646,18 +644,12 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
                 type="button"
                 className="material-btn btn-primary add-to-queue-btn"
                 onClick={() => handleAddToQueue()}
-                disabled={queue.length >= 5 || builderTotalSecs <= 0}
-                title={
-                  queue.length >= 5
-                    ? 'Queue is full (maximum 5 timers allowed)'
-                    : 'Add this countdown to the playlist queue'
-                }
+                disabled={builderTotalSecs <= 0}
+                title="Add this countdown to the playlist queue"
                 id="btn-add-to-queue"
               >
                 <BookmarkPlus size={16} />
-                <span>
-                  {queue.length >= 5 ? 'QUEUE FULL (5/5)' : `+ ADD TO QUEUE (${queue.length}/5)`}
-                </span>
+                <span>+ ADD TO QUEUE ({queue.length})</span>
               </button>
 
               {/* Direct Shoot to Stage (Bypass Queue) */}
@@ -887,6 +879,18 @@ export const ControlSurface: React.FC<ControlSurfaceProps> = ({ onSwitchToRemote
         onClose={() => setIsRemoteModalOpen(false)}
         connectedCount={connectedClientsCount}
         onSwitchToRemote={onSwitchToRemote}
+      />
+
+      {/* Event Timing Report Modal */}
+      <TimingReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+      />
+
+      {/* App Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
       />
     </div>
   );

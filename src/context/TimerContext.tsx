@@ -1,12 +1,21 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_TIMER_STATE } from '../types/timer';
-import type { TimerState, StageColor, AutoAdvanceMode, QueuedTimerItem } from '../types/timer';
+import type {
+  TimerState,
+  StageColor,
+  AutoAdvanceMode,
+  IdleDisplayMode,
+  QueuedTimerItem,
+  TimingReportEntry,
+  TimingReportEventType,
+  TimerSettings,
+} from '../types/timer';
 import { formatTime, hasValidTimerLabel } from '../utils/time';
 
 const STORAGE_KEY = 'STAGE_TIMER_STATE_V2';
 const CHANNEL_NAME = 'STAGE_TIMER_SYNC_CHANNEL';
 
-interface TimerContextValue {
+export interface TimerContextValue {
   state: TimerState;
   queueTime: (hours: number, minutes: number, seconds?: number) => void;
   startWithQueued: () => void;
@@ -18,13 +27,14 @@ interface TimerContextValue {
   resume: () => void;
   stop: () => void;
   reset: () => void;
+  setIdle: () => void;
   addTimeToLive: (hours: number, minutes: number, seconds?: number) => void;
   subtractTimeFromLive: (hours: number, minutes: number, seconds?: number) => void;
   adjustRemainingTime: (deltaSeconds: number) => void;
   setLiveDuration: (hours: number, minutes: number, seconds?: number) => void;
   setColorScheme: (color: StageColor) => void;
 
-  // Multi-timer queue (up to 5 items)
+  // Unlimited Multi-timer queue
   addToQueue: (hours: number, minutes: number, seconds?: number, title?: string) => boolean;
   removeFromQueue: (id: string) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
@@ -36,10 +46,18 @@ interface TimerContextValue {
   loadNextInQueueToStage: () => void;
   setAutoAdvanceMode: (mode: AutoAdvanceMode) => void;
 
+  // Idle Display & Clock Settings
+  setIdleDisplayMode: (mode: IdleDisplayMode) => void;
+  setClockFormat24: (is24: boolean) => void;
+
   // Up Next Stage Alert Controls
   triggerUpNextAlert: (customTitle?: string, durationSeconds?: number) => void;
   dismissUpNextAlert: () => void;
   setUpNextTriggerSeconds: (seconds: number) => void;
+
+  // Event Timing Report
+  clearTimingReport: () => void;
+  logTimingEvent: (type: TimingReportEventType, notes?: string, customLabel?: string) => void;
 
   // Remote Network Sync
   dispatchAction: (action: { type: string; payload?: any }) => void;
@@ -50,72 +68,128 @@ interface TimerContextValue {
 
 const TimerContext = createContext<TimerContextValue | null>(null);
 
-function loadInitialState(): TimerState {
+function formatTimeOfDay(ms: number, is24?: boolean): string {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // Filter out any leftover hardcoded seed items ('q-1', 'q-2') so queue defaults to completely empty
-      const rawQueue: QueuedTimerItem[] = Array.isArray(parsed.timerQueue)
-        ? parsed.timerQueue
-        : [];
-      const timerQueue = rawQueue
-        .filter((item) => item.id !== 'q-1' && item.id !== 'q-2')
-        .map((item) => ({
-          ...item,
-          // Strip any generic countdown titles from stored items
-          title: hasValidTimerLabel(item.title) ? item.title.trim() : '',
-        }));
-      const autoAdvanceMode: AutoAdvanceMode = parsed.autoAdvanceMode || 'manual';
-      const activeQueueItemId =
-        parsed.activeQueueItemId === 'q-1' || parsed.activeQueueItemId === 'q-2'
-          ? null
-          : parsed.activeQueueItemId || null;
-      const upNextTriggerSeconds =
-        typeof parsed.upNextTriggerSeconds === 'number' ? parsed.upNextTriggerSeconds : 60;
-
-      if (parsed.status === 'running' && parsed.targetEndTime) {
-        const rawRemaining = Math.max(0, Math.ceil((parsed.targetEndTime - Date.now()) / 1000));
-        const ceilingLimit =
-          typeof parsed.remainingSeconds === 'number' && parsed.remainingSeconds > 0
-            ? parsed.remainingSeconds
-            : (parsed.totalSeconds > 0 ? parsed.totalSeconds : rawRemaining);
-        const remaining = Math.min(ceilingLimit, rawRemaining);
-        return {
-          ...DEFAULT_TIMER_STATE,
-          ...parsed,
-          queuedHours: parsed.queuedHours || 0,
-          remainingSeconds: remaining,
-          status: remaining > 0 ? 'running' : 'finished',
-          finishedAt: remaining > 0 ? null : (parsed.finishedAt || Date.now()),
-          timerQueue,
-          autoAdvanceMode,
-          activeQueueItemId,
-          upNextTriggerSeconds,
-          upNextAlertUntil: null,
-          upNextAlertTitle: null,
-        };
-      }
-      return {
-        ...DEFAULT_TIMER_STATE,
-        ...parsed,
-        isBlackout: true, // Default to pure black on startup (VideoPsalm standard)
-        queuedHours: parsed.queuedHours || 0,
-        finishedAt: parsed.finishedAt || null,
-        timerQueue,
-        autoAdvanceMode,
-        activeQueueItemId,
-        upNextTriggerSeconds,
-        upNextAlertUntil: null,
-        upNextAlertTitle: null,
-      };
-    }
-  } catch (e) {
-    console.warn('Failed to parse timer state:', e);
+    return new Date(ms).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: !is24,
+    });
+  } catch {
+    return new Date(ms).toTimeString().substring(0, 8);
   }
-  return DEFAULT_TIMER_STATE;
 }
 
+// Helper to persist only user preferences into settings.json and localStorage
+function persistSettings(partialSettings: Partial<TimerSettings>) {
+  try {
+    const raw = localStorage.getItem('STAGE_TIMER_SETTINGS');
+    const existing = raw ? JSON.parse(raw) : {};
+    const updated = { ...existing, ...partialSettings };
+    localStorage.setItem('STAGE_TIMER_SETTINGS', JSON.stringify(updated));
+  } catch {}
+
+  // Write to settings.json via server API
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(partialSettings),
+  }).catch(() => {});
+
+  if (window.electronAPI?.saveSettings) {
+    window.electronAPI.saveSettings(partialSettings).catch(() => {});
+  }
+}
+
+// Helper to persist timing cues / queue into settings.json and localStorage
+function persistQueue(queue: QueuedTimerItem[]) {
+  try {
+    localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(queue));
+  } catch {}
+
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timerQueue: queue }),
+  }).catch(() => {});
+
+  if (window.electronAPI?.saveSettings) {
+    window.electronAPI.saveSettings({ timerQueue: queue }).catch(() => {});
+  }
+}
+
+function loadInitialState(): TimerState {
+  // Purge any stale runtime state from localStorage so past countdowns/overtime never resurrect!
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('STAGE_TIMER_STATE');
+  } catch {}
+
+  let initialSettings: TimerSettings = {
+    idleDisplayMode: 'zero',
+    clockFormat24: false,
+    autoAdvanceMode: 'manual',
+    upNextTriggerSeconds: 60,
+    colorScheme: 'white',
+  };
+
+  try {
+    const rawSettings = localStorage.getItem('STAGE_TIMER_SETTINGS');
+    if (rawSettings) {
+      const parsed = JSON.parse(rawSettings);
+      if (parsed.idleDisplayMode === 'clock' || parsed.idleDisplayMode === 'zero') {
+        initialSettings.idleDisplayMode = parsed.idleDisplayMode;
+      }
+      if (typeof parsed.clockFormat24 === 'boolean') {
+        initialSettings.clockFormat24 = parsed.clockFormat24;
+      }
+      if (parsed.autoAdvanceMode) {
+        initialSettings.autoAdvanceMode =
+          parsed.autoAdvanceMode === 'auto-ready' ? 'auto-load' : parsed.autoAdvanceMode;
+      }
+      if (typeof parsed.upNextTriggerSeconds === 'number') {
+        initialSettings.upNextTriggerSeconds = parsed.upNextTriggerSeconds;
+      }
+      if (typeof parsed.colorScheme === 'string' && parsed.colorScheme) {
+        initialSettings.colorScheme = parsed.colorScheme;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse saved settings:', e);
+  }
+
+  let initialQueue: QueuedTimerItem[] = [];
+  try {
+    const rawQueue = localStorage.getItem('STAGE_TIMER_QUEUE');
+    if (rawQueue) {
+      const parsedQueue = JSON.parse(rawQueue);
+      if (Array.isArray(parsedQueue)) {
+        initialQueue = parsedQueue.map((item) => ({ ...item }));
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse saved queue:', e);
+  }
+
+  // Always return fresh idle timer at 00:00 (or device clock if configured in settings), with preserved cues
+  return {
+    ...DEFAULT_TIMER_STATE,
+    ...initialSettings,
+    status: 'idle',
+    remainingSeconds: 0,
+    totalSeconds: 0,
+    initialDurationSeconds: 0,
+    activeTimerTitle: '',
+    finishedAt: null,
+    targetEndTime: null,
+    isBlackout: true, // Default to pure black on startup (VideoPsalm standard)
+    lastAction: 'Ready (00:00)',
+    timerQueue: initialQueue,
+    activeQueueItemId: null,
+    timingReport: [],
+  };
+}
 
 export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<TimerState>(loadInitialState);
@@ -123,6 +197,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const stateRef = useRef(state);
   stateRef.current = state;
   const lastUpNextTriggeredTargetRef = useRef<number | null>(null);
+  const autoAdvancedFinishedAtRef = useRef<number | null>(null);
 
   // Network remote control state
   const isElectron = Boolean(window.electronAPI?.isElectron);
@@ -138,18 +213,27 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isWsConnected, setIsWsConnected] = useState<boolean>(false);
   const serverTimeOffsetRef = useRef<number>(0);
 
-  const sendActionToHost = useCallback((action: { type: string; payload?: any }) => {
+  const sendActionToHost = useCallback((action: { type: string; payload?: any; actionId?: string }) => {
+    const actionWithId = {
+      ...action,
+      actionId: action.actionId || `act-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    };
+
+    // Primary transport: WebSocket for instant, authoritative delivery
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
-        wsRef.current.send(JSON.stringify({ type: 'ACTION', action }));
+        wsRef.current.send(JSON.stringify({ type: 'ACTION', action: actionWithId }));
+        return; // CRITICAL: Stop here! Do NOT double-send over HTTP!
       } catch (e) {
-        console.warn('WS sendAction failed:', e);
+        console.warn('WS sendAction failed, falling back to HTTP:', e);
       }
     }
+
+    // Secondary fallback transport: HTTP POST /api/action only if WebSocket is unavailable
     fetch('/api/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action: actionWithId }),
     }).catch(() => {
       // ignore
     });
@@ -193,7 +277,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       lastBroadcastTimeRef.current = newState.lastUpdated;
 
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
+        // Broadcast to other browser tabs, Electron displays, and mobile remote clients in real time
         if (channelRef.current) {
           channelRef.current.postMessage({ type: 'SYNC_STATE', payload: newState });
         }
@@ -225,6 +309,75 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     },
     [broadcastState]
   );
+
+  // Load settings from settings.json via /api/settings or Electron API
+  useEffect(() => {
+    if (window.electronAPI?.getSettings) {
+      window.electronAPI
+        .getSettings()
+        .then((saved) => {
+          if (saved && typeof saved === 'object') {
+            setState((prev) => ({
+              ...prev,
+              idleDisplayMode:
+                saved.idleDisplayMode === 'clock' || saved.idleDisplayMode === 'zero'
+                  ? saved.idleDisplayMode
+                  : prev.idleDisplayMode,
+              clockFormat24:
+                typeof saved.clockFormat24 === 'boolean'
+                  ? saved.clockFormat24
+                  : prev.clockFormat24,
+              autoAdvanceMode: saved.autoAdvanceMode || prev.autoAdvanceMode,
+              upNextTriggerSeconds:
+                typeof saved.upNextTriggerSeconds === 'number'
+                  ? saved.upNextTriggerSeconds
+                  : prev.upNextTriggerSeconds,
+              colorScheme: saved.colorScheme || prev.colorScheme,
+              timerQueue: Array.isArray(saved.timerQueue) ? saved.timerQueue : prev.timerQueue,
+            }));
+            try {
+              localStorage.setItem('STAGE_TIMER_SETTINGS', JSON.stringify(saved));
+              if (Array.isArray(saved.timerQueue)) {
+                localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(saved.timerQueue));
+              }
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    } else {
+      fetch('/api/settings')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((saved) => {
+          if (saved && typeof saved === 'object') {
+            setState((prev) => ({
+              ...prev,
+              idleDisplayMode:
+                saved.idleDisplayMode === 'clock' || saved.idleDisplayMode === 'zero'
+                  ? saved.idleDisplayMode
+                  : prev.idleDisplayMode,
+              clockFormat24:
+                typeof saved.clockFormat24 === 'boolean'
+                  ? saved.clockFormat24
+                  : prev.clockFormat24,
+              autoAdvanceMode: saved.autoAdvanceMode || prev.autoAdvanceMode,
+              upNextTriggerSeconds:
+                typeof saved.upNextTriggerSeconds === 'number'
+                  ? saved.upNextTriggerSeconds
+                  : prev.upNextTriggerSeconds,
+              colorScheme: saved.colorScheme || prev.colorScheme,
+              timerQueue: Array.isArray(saved.timerQueue) ? saved.timerQueue : prev.timerQueue,
+            }));
+            try {
+              localStorage.setItem('STAGE_TIMER_SETTINGS', JSON.stringify(saved));
+              if (Array.isArray(saved.timerQueue)) {
+                localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(saved.timerQueue));
+              }
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   // Initial Sync: Remote clients fetch host state immediately; Host publishes state immediately
   useEffect(() => {
@@ -335,7 +488,6 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [isRemoteClient]);
 
-
   // Interval timer for drift-free countdown & automatic Up Next alerts
   useEffect(() => {
     const timerInterval = setInterval(() => {
@@ -383,16 +535,28 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (remaining === 0) {
         const finishTime = Date.now();
-        updateStateAndBroadcast((prev) => ({
-          ...prev,
-          remainingSeconds: 0,
-          status: 'finished',
-          finishedAt: prev.finishedAt || finishTime,
-          targetEndTime: null,
-          upNextAlertUntil: prev.upNextAlertUntil,
-          lastUpdated: finishTime,
-          lastAction: 'Time Up!',
-        }));
+        updateStateAndBroadcast((prev) => {
+          const timeUpEntry: TimingReportEntry = {
+            id: `rpt-${finishTime}-${Math.random().toString(36).substring(2, 6)}`,
+            timestamp: finishTime,
+            timeFormatted: formatTimeOfDay(finishTime, prev.clockFormat24),
+            eventType: 'TIME_UP',
+            label: prev.activeTimerTitle || 'Live Timer',
+            plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || 0,
+            notes: 'Countdown reached 00:00 (Time Up)',
+          };
+          return {
+            ...prev,
+            remainingSeconds: 0,
+            status: 'finished',
+            finishedAt: prev.finishedAt || finishTime,
+            targetEndTime: null,
+            upNextAlertUntil: prev.upNextAlertUntil,
+            lastUpdated: finishTime,
+            lastAction: 'Time Up!',
+            timingReport: [timeUpEntry, ...(prev.timingReport || []).slice(0, 99)],
+          };
+        });
       } else if (shouldTriggerUpNext) {
         lastUpNextTriggeredTargetRef.current = current.targetEndTime;
         const queue = current.timerQueue || [];
@@ -430,7 +594,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearInterval(timerInterval);
   }, [isRemoteClient, updateStateAndBroadcast, broadcastTick]);
 
-  // Queue time supporting Hours, Minutes, Seconds
+  // Queue time supporting Hours, Minutes, Seconds (staged builder time, DOES NOT overwrite running timer)
   const queueTime = useCallback((hours: number, minutes: number, seconds: number = 0) => {
     if (isRemoteClient) {
       sendActionToHost({ type: 'QUEUE_TIME', payload: { hours, minutes, seconds } });
@@ -445,7 +609,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       queuedMinutes: clampedMins,
       queuedSeconds: clampedSecs,
       lastUpdated: Date.now(),
-      lastAction: `Queued ${clampedHrs > 0 ? String(clampedHrs).padStart(2, '0') + ':' : ''}${String(clampedMins).padStart(2, '0')}:${String(clampedSecs).padStart(2, '0')}`,
+      lastAction: `Builder set to ${clampedHrs > 0 ? String(clampedHrs).padStart(2, '0') + ':' : ''}${String(clampedMins).padStart(2, '0')}:${String(clampedSecs).padStart(2, '0')}`,
     }));
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
@@ -456,23 +620,44 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     const current = stateRef.current;
-    const total = (current.queuedHours || 0) * 3600 + (current.queuedMinutes || 0) * 60 + (current.queuedSeconds || 0);
-    const validTotal = total > 0 ? total : (current.totalSeconds > 0 ? current.totalSeconds : 600);
+    // CRITICAL RESET/START FIX: If the timer is staged/reset with remaining seconds > 0, start from that staged duration!
+    let validTotal = 0;
+    if (current.status === 'idle' && current.remainingSeconds > 0) {
+      validTotal = current.remainingSeconds;
+    } else {
+      const total = (current.queuedHours || 0) * 3600 + (current.queuedMinutes || 0) * 60 + (current.queuedSeconds || 0);
+      validTotal = total > 0 ? total : (current.initialDurationSeconds > 0 ? current.initialDurationSeconds : (current.totalSeconds > 0 ? current.totalSeconds : 600));
+    }
+
     const now = Date.now();
     lastUpNextTriggeredTargetRef.current = null;
 
-    updateStateAndBroadcast((prev) => ({
-      ...prev,
-      totalSeconds: validTotal,
-      remainingSeconds: validTotal,
-      status: 'running',
-      targetEndTime: now + validTotal * 1000,
-      finishedAt: null,
-      isBlackout: false,
-      upNextAlertUntil: null,
-      lastUpdated: now,
-      lastAction: `Jumped to ${formatTime(validTotal).text}`,
-    }));
+    updateStateAndBroadcast((prev) => {
+      const sessionTitle = prev.activeTimerTitle || (prev.activeQueueItemId ? (prev.timerQueue?.find(q => q.id === prev.activeQueueItemId)?.title || '') : '');
+      const reportEntry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'START',
+        label: sessionTitle || 'Live Timer',
+        plannedDurationSeconds: validTotal,
+        notes: `Started timer countdown: ${formatTime(validTotal).text}`,
+      };
+      return {
+        ...prev,
+        totalSeconds: validTotal,
+        remainingSeconds: validTotal,
+        initialDurationSeconds: validTotal,
+        status: 'running',
+        targetEndTime: now + validTotal * 1000,
+        finishedAt: null,
+        isBlackout: false,
+        upNextAlertUntil: null,
+        lastUpdated: now,
+        lastAction: `Started ${formatTime(validTotal).text}`,
+        timingReport: [reportEntry, ...(prev.timingReport || []).slice(0, 99)],
+      };
+    });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
   // Load the queued time onto the stage display in idle / ready mode (waiting for speaker to speak)
@@ -497,6 +682,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       queuedSeconds: s,
       totalSeconds: validTotal,
       remainingSeconds: validTotal,
+      initialDurationSeconds: validTotal,
       status: 'idle',
       targetEndTime: null,
       finishedAt: null,
@@ -534,15 +720,29 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const rawRemaining = Math.max(0, Math.ceil((current.targetEndTime - Date.now()) / 1000));
     const remaining = Math.min(current.remainingSeconds, rawRemaining);
-    updateStateAndBroadcast((prev) => ({
-      ...prev,
-      remainingSeconds: remaining,
-      status: 'paused',
-      targetEndTime: null,
-      finishedAt: null,
-      lastUpdated: Date.now(),
-      lastAction: 'Paused',
-    }));
+    const now = Date.now();
+
+    updateStateAndBroadcast((prev) => {
+      const entry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'PAUSE',
+        label: prev.activeTimerTitle || 'Live Timer',
+        plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || 0,
+        notes: `Paused with ${formatTime(remaining).text} remaining`,
+      };
+      return {
+        ...prev,
+        remainingSeconds: remaining,
+        status: 'paused',
+        targetEndTime: null,
+        finishedAt: null,
+        lastUpdated: now,
+        lastAction: 'Paused',
+        timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
+      };
+    });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
   const resume = useCallback(() => {
@@ -553,20 +753,36 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const current = stateRef.current;
     if (current.status !== 'paused' && current.status !== 'idle') return;
 
-    const remaining = current.remainingSeconds > 0 ? current.remainingSeconds : (current.totalSeconds || 600);
+    const remaining =
+      current.remainingSeconds > 0
+        ? current.remainingSeconds
+        : (current.initialDurationSeconds || current.totalSeconds || 600);
     const now = Date.now();
 
-    updateStateAndBroadcast((prev) => ({
-      ...prev,
-      remainingSeconds: remaining,
-      totalSeconds: prev.totalSeconds || remaining,
-      status: 'running',
-      targetEndTime: now + remaining * 1000,
-      finishedAt: null,
-      isBlackout: false,
-      lastUpdated: now,
-      lastAction: 'Running',
-    }));
+    updateStateAndBroadcast((prev) => {
+      const entry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'RESUME',
+        label: prev.activeTimerTitle || 'Live Timer',
+        plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || remaining,
+        notes: `Resumed countdown: ${formatTime(remaining).text} remaining`,
+      };
+      return {
+        ...prev,
+        remainingSeconds: remaining,
+        totalSeconds: prev.totalSeconds || remaining,
+        initialDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || remaining,
+        status: 'running',
+        targetEndTime: now + remaining * 1000,
+        finishedAt: null,
+        isBlackout: false,
+        lastUpdated: now,
+        lastAction: 'Running',
+        timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
+      };
+    });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
   const toggleRunPause = useCallback(() => {
@@ -586,36 +802,114 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     lastUpNextTriggeredTargetRef.current = null;
-    updateStateAndBroadcast((prev) => ({
-      ...prev,
-      remainingSeconds: 0,
-      status: 'idle',
-      targetEndTime: null,
-      finishedAt: null,
-      upNextAlertUntil: null,
-      lastUpdated: Date.now(),
-      lastAction: 'Stopped',
-    }));
+    const now = Date.now();
+    updateStateAndBroadcast((prev) => {
+      const entry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'STOP',
+        label: prev.activeTimerTitle || 'Live Timer',
+        plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || 0,
+        notes: 'Stopped timer',
+      };
+      return {
+        ...prev,
+        remainingSeconds: 0,
+        status: 'idle',
+        targetEndTime: null,
+        finishedAt: null,
+        upNextAlertUntil: null,
+        lastUpdated: now,
+        lastAction: 'Stopped',
+        timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
+      };
+    });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
+  // CRITICAL FIX: Reset properly resets to active timer's original duration, NOT builder queue inputs!
   const reset = useCallback(() => {
     if (isRemoteClient) {
       sendActionToHost({ type: 'RESET' });
       return;
     }
     lastUpNextTriggeredTargetRef.current = null;
+    const now = Date.now();
+
     updateStateAndBroadcast((prev) => {
-      const resetTime = prev.totalSeconds > 0 ? prev.totalSeconds : 600;
+      let resetTime = 0;
+      if (prev.activeQueueItemId) {
+        const item = (prev.timerQueue || []).find((q) => q.id === prev.activeQueueItemId);
+        if (item) {
+          resetTime = item.totalSeconds;
+        }
+      }
+      if (resetTime === 0) {
+        resetTime =
+          prev.initialDurationSeconds > 0
+            ? prev.initialDurationSeconds
+            : (prev.totalSeconds > 0 ? prev.totalSeconds : 0);
+      }
+
+      const entry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'RESET',
+        label: prev.activeTimerTitle || 'Live Timer',
+        plannedDurationSeconds: resetTime,
+        notes: `Reset timer to original duration: ${formatTime(resetTime).text}`,
+      };
+
       return {
         ...prev,
         remainingSeconds: resetTime,
+        totalSeconds: resetTime,
+        initialDurationSeconds: resetTime,
         status: 'idle',
         targetEndTime: null,
         finishedAt: null,
         isBlackout: false,
         upNextAlertUntil: null,
-        lastUpdated: Date.now(),
-        lastAction: 'Reset to Ready',
+        lastUpdated: now,
+        lastAction: `Reset to ${formatTime(resetTime).text}`,
+        timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
+      };
+    });
+  }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
+
+  const setIdle = useCallback(() => {
+    if (isRemoteClient) {
+      sendActionToHost({ type: 'SET_IDLE' });
+      return;
+    }
+    lastUpNextTriggeredTargetRef.current = null;
+    const now = Date.now();
+    updateStateAndBroadcast((prev) => {
+      const entry: TimingReportEntry = {
+        id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+        eventType: 'IDLE',
+        label: prev.activeTimerTitle || 'Live Stage',
+        plannedDurationSeconds: 0,
+        notes: `Returned stage to Idle mode (${prev.idleDisplayMode === 'clock' ? 'Device Clock' : '00:00'})`,
+      };
+      return {
+        ...prev,
+        remainingSeconds: 0,
+        totalSeconds: 0,
+        initialDurationSeconds: 0,
+        activeTimerTitle: '',
+        activeQueueItemId: null,
+        status: 'idle',
+        targetEndTime: null,
+        finishedAt: null,
+        upNextAlertUntil: null,
+        upNextAlertTitle: null,
+        lastUpdated: now,
+        lastAction: 'Set to Idle',
+        timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
       };
     });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
@@ -630,7 +924,17 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => {
+      const addedText = `+${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`;
       if (prev.status === 'finished') {
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'ADD_TIME',
+          label: prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || delta,
+          notes: `Added ${addedText} while finished (New duration: ${formatTime(delta).text})`,
+        };
         return {
           ...prev,
           remainingSeconds: delta,
@@ -640,13 +944,23 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           finishedAt: null,
           isBlackout: false,
           lastUpdated: now,
-          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+          lastAction: `Added ${addedText}`,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
         };
       }
       let newRemaining = prev.remainingSeconds + delta;
       if (prev.status === 'running' && prev.targetEndTime) {
         const newTarget = prev.targetEndTime + delta * 1000;
         newRemaining = Math.min(prev.remainingSeconds + delta, Math.max(0, Math.ceil((newTarget - now) / 1000)));
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'ADD_TIME',
+          label: prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds,
+          notes: `Added ${addedText} (Remaining: ${formatTime(newRemaining).text})`,
+        };
         return {
           ...prev,
           remainingSeconds: newRemaining,
@@ -655,9 +969,19 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           finishedAt: null,
           isBlackout: false,
           lastUpdated: now,
-          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+          lastAction: `Added ${addedText}`,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
         };
       } else {
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'ADD_TIME',
+          label: prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds,
+          notes: `Added ${addedText} (Remaining: ${formatTime(newRemaining).text})`,
+        };
         return {
           ...prev,
           remainingSeconds: newRemaining,
@@ -665,7 +989,8 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           finishedAt: null,
           isBlackout: false,
           lastUpdated: now,
-          lastAction: `Added +${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+          lastAction: `Added ${addedText}`,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
         };
       }
     });
@@ -681,11 +1006,21 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const now = Date.now();
 
     updateStateAndBroadcast((prev) => {
+      const subbedText = `-${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`;
       let newRemaining = Math.max(0, prev.remainingSeconds - delta);
       if (prev.status === 'running' && prev.targetEndTime) {
         const newTarget = Math.max(now, prev.targetEndTime - delta * 1000);
         newRemaining = Math.min(Math.max(0, prev.remainingSeconds - delta), Math.max(0, Math.ceil((newTarget - now) / 1000)));
         const isFinished = newRemaining === 0;
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'SUBTRACT_TIME',
+          label: prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds,
+          notes: `Subtracted ${subbedText} (Remaining: ${formatTime(newRemaining).text})`,
+        };
         return {
           ...prev,
           remainingSeconds: newRemaining,
@@ -693,17 +1028,28 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           status: isFinished ? 'finished' : 'running',
           finishedAt: isFinished ? (prev.finishedAt || now) : null,
           lastUpdated: now,
-          lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+          lastAction: `Subtracted ${subbedText}`,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
         };
       } else {
         const isFinished = newRemaining === 0 && prev.status !== 'idle';
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'SUBTRACT_TIME',
+          label: prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds,
+          notes: `Subtracted ${subbedText} (Remaining: ${formatTime(newRemaining).text})`,
+        };
         return {
           ...prev,
           remainingSeconds: newRemaining,
           status: isFinished ? 'finished' : prev.status,
           finishedAt: isFinished ? (prev.finishedAt || now) : null,
           lastUpdated: now,
-          lastAction: `Subtracted -${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`,
+          lastAction: `Subtracted ${subbedText}`,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
         };
       }
     });
@@ -719,7 +1065,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const setLiveDuration = useCallback((hours: number, minutes: number, seconds: number = 0) => {
     if (isRemoteClient) {
-      sendActionToHost({ type: 'ADD_TIME', payload: { hours, minutes, seconds } });
+      sendActionToHost({ type: 'SET_DURATION', payload: { hours, minutes, seconds } });
       return;
     }
     const newTotal = hours * 3600 + minutes * 60 + seconds;
@@ -731,6 +1077,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ...prev,
         totalSeconds: newTotal,
         remainingSeconds: newTotal,
+        initialDurationSeconds: newTotal,
         targetEndTime: isRunning ? now + newTotal * 1000 : null,
         status: isRunning ? 'running' : prev.status,
         finishedAt: null,
@@ -741,12 +1088,12 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
-
   const setColorScheme = useCallback((colorScheme: StageColor) => {
     if (isRemoteClient) {
       sendActionToHost({ type: 'SET_COLOR_SCHEME', payload: { color: colorScheme } });
       return;
     }
+    persistSettings({ colorScheme });
     updateStateAndBroadcast((prev) => ({
       ...prev,
       colorScheme,
@@ -754,19 +1101,13 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }));
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
-  // Multi-timer queue management (up to 5 items)
+  // UNLIMITED Multi-timer queue management
   const addToQueue = useCallback(
     (hours: number, minutes: number, seconds: number = 0, title?: string) => {
       if (isRemoteClient) {
         sendActionToHost({ type: 'ADD_TO_QUEUE', payload: { hours, minutes, seconds, title } });
         return true;
       }
-      const current = stateRef.current;
-      const queue = current.timerQueue || [];
-      if (queue.length >= 5) {
-        return false;
-      }
-
       const clampedHrs = Math.max(0, Math.min(99, hours));
       const clampedMins = Math.max(0, Math.min(59, minutes));
       const clampedSecs = Math.max(0, Math.min(59, seconds));
@@ -785,14 +1126,18 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         totalSeconds: total,
       };
 
-      updateStateAndBroadcast((prev) => ({
-        ...prev,
-        timerQueue: [...(prev.timerQueue || []), newItem],
-        lastUpdated: Date.now(),
-        lastAction: itemTitle
-          ? `Added "${itemTitle}" to Queue`
-          : `Added ${formatTime(total).text} to Queue`,
-      }));
+      updateStateAndBroadcast((prev) => {
+        const updatedQueue = [...(prev.timerQueue || []), newItem];
+        persistQueue(updatedQueue);
+        return {
+          ...prev,
+          timerQueue: updatedQueue,
+          lastUpdated: Date.now(),
+          lastAction: itemTitle
+            ? `Added "${itemTitle}" to Queue`
+            : `Added ${formatTime(total).text} to Queue`,
+        };
+      });
       return true;
     },
     [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
@@ -806,6 +1151,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       updateStateAndBroadcast((prev) => {
         const filtered = (prev.timerQueue || []).filter((item) => item.id !== id);
+        persistQueue(filtered);
         return {
           ...prev,
           timerQueue: filtered,
@@ -831,6 +1177,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         const [moved] = queue.splice(fromIndex, 1);
         queue.splice(toIndex, 0, moved);
+        persistQueue(queue);
         return {
           ...prev,
           timerQueue: queue,
@@ -847,13 +1194,17 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sendActionToHost({ type: 'UPDATE_QUEUE_TITLE', payload: { id, title } });
         return;
       }
-      updateStateAndBroadcast((prev) => ({
-        ...prev,
-        timerQueue: (prev.timerQueue || []).map((item) =>
+      updateStateAndBroadcast((prev) => {
+        const updatedQueue = (prev.timerQueue || []).map((item) =>
           item.id === id ? { ...item, title: title.trim() || item.title } : item
-        ),
-        lastUpdated: Date.now(),
-      }));
+        );
+        persistQueue(updatedQueue);
+        return {
+          ...prev,
+          timerQueue: updatedQueue,
+          lastUpdated: Date.now(),
+        };
+      });
     },
     [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
   );
@@ -863,6 +1214,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       sendActionToHost({ type: 'CLEAR_QUEUE' });
       return;
     }
+    persistQueue([]);
     updateStateAndBroadcast((prev) => ({
       ...prev,
       timerQueue: [],
@@ -884,19 +1236,33 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       lastUpNextTriggeredTargetRef.current = null;
       const now = Date.now();
-      updateStateAndBroadcast((prev) => ({
-        ...prev,
-        activeQueueItemId: id,
-        totalSeconds: item.totalSeconds,
-        remainingSeconds: item.totalSeconds,
-        status: 'running',
-        targetEndTime: now + item.totalSeconds * 1000,
-        finishedAt: null,
-        isBlackout: false,
-        upNextAlertUntil: null,
-        lastUpdated: now,
-        lastAction: `Started ${item.title || formatTime(item.totalSeconds).text}`,
-      }));
+      updateStateAndBroadcast((prev) => {
+        const reportEntry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: 'START',
+          label: item.title || `Queue Item #${(prev.timerQueue || []).findIndex(q => q.id === id) + 1}`,
+          plannedDurationSeconds: item.totalSeconds,
+          notes: `Started from queue: ${item.title || formatTime(item.totalSeconds).text}`,
+        };
+        return {
+          ...prev,
+          activeQueueItemId: id,
+          activeTimerTitle: item.title || '',
+          totalSeconds: item.totalSeconds,
+          remainingSeconds: item.totalSeconds,
+          initialDurationSeconds: item.totalSeconds,
+          status: 'running',
+          targetEndTime: now + item.totalSeconds * 1000,
+          finishedAt: null,
+          isBlackout: false,
+          upNextAlertUntil: null,
+          lastUpdated: now,
+          lastAction: `Started ${item.title || formatTime(item.totalSeconds).text}`,
+          timingReport: [reportEntry, ...(prev.timingReport || []).slice(0, 99)],
+        };
+      });
     },
     [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
   );
@@ -916,8 +1282,10 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updateStateAndBroadcast((prev) => ({
         ...prev,
         activeQueueItemId: id,
+        activeTimerTitle: item.title || '',
         totalSeconds: item.totalSeconds,
         remainingSeconds: item.totalSeconds,
+        initialDurationSeconds: item.totalSeconds,
         status: 'idle',
         targetEndTime: null,
         finishedAt: null,
@@ -970,17 +1338,182 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [isRemoteClient, sendActionToHost, loadQueueItemToStage]);
 
+  // Queue Transition Behavior Setting (auto-start, auto-load, manual)
   const setAutoAdvanceMode = useCallback(
     (mode: AutoAdvanceMode) => {
+      if (isRemoteClient) {
+        sendActionToHost({ type: 'SET_AUTO_ADVANCE_MODE', payload: { mode } });
+        return;
+      }
+      persistSettings({ autoAdvanceMode: mode });
       updateStateAndBroadcast((prev) => ({
         ...prev,
         autoAdvanceMode: mode,
         lastUpdated: Date.now(),
-        lastAction: `Mode: ${mode === 'manual' ? 'Manual' : mode === 'auto-ready' ? 'Auto-Load Ready' : 'Auto-Start Next'}`,
+        lastAction: `Transition Mode: ${
+          mode === 'auto-start'
+            ? 'Auto Start Next'
+            : mode === 'auto-load' || mode === 'auto-ready'
+            ? 'Auto Load Next'
+            : 'Manual'
+        }`,
       }));
     },
-    [updateStateAndBroadcast]
+    [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
   );
+
+  // Default Idle Display Setting (00:00 vs live Device Clock)
+  const setIdleDisplayMode = useCallback(
+    (mode: IdleDisplayMode) => {
+      if (isRemoteClient) {
+        sendActionToHost({ type: 'SET_IDLE_DISPLAY_MODE', payload: { mode } });
+        return;
+      }
+      persistSettings({ idleDisplayMode: mode });
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        idleDisplayMode: mode,
+        lastUpdated: Date.now(),
+        lastAction: `Idle display: ${mode === 'clock' ? 'Device Clock' : '00:00'}`,
+      }));
+    },
+    [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
+  );
+
+  // 12-hour or 24-hour clock format
+  const setClockFormat24 = useCallback(
+    (clockFormat24: boolean) => {
+      if (isRemoteClient) {
+        sendActionToHost({ type: 'SET_CLOCK_FORMAT_24', payload: { clockFormat24 } });
+        return;
+      }
+      persistSettings({ clockFormat24 });
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        clockFormat24,
+        lastUpdated: Date.now(),
+        lastAction: `Clock format: ${clockFormat24 ? '24-hour' : '12-hour'}`,
+      }));
+    },
+    [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
+  );
+
+  // Clear Event Timing Report
+  const clearTimingReport = useCallback(() => {
+    if (isRemoteClient) {
+      sendActionToHost({ type: 'CLEAR_TIMING_REPORT' });
+      return;
+    }
+    updateStateAndBroadcast((prev) => ({
+      ...prev,
+      timingReport: [],
+      lastUpdated: Date.now(),
+      lastAction: 'Cleared Timing Report',
+    }));
+  }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
+
+  // Log custom Timing Event
+  const logTimingEvent = useCallback(
+    (type: TimingReportEventType, notes?: string, customLabel?: string) => {
+      if (isRemoteClient) {
+        sendActionToHost({ type: 'LOG_TIMING_EVENT', payload: { type, notes, customLabel } });
+        return;
+      }
+      const now = Date.now();
+      updateStateAndBroadcast((prev) => {
+        const entry: TimingReportEntry = {
+          id: `rpt-${now}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: now,
+          timeFormatted: formatTimeOfDay(now, prev.clockFormat24),
+          eventType: type,
+          label: customLabel || prev.activeTimerTitle || 'Live Timer',
+          plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || 0,
+          notes,
+        };
+        return {
+          ...prev,
+          timingReport: [entry, ...(prev.timingReport || []).slice(0, 99)],
+          lastUpdated: now,
+        };
+      });
+    },
+    [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
+  );
+
+  // Auto Transition Effect when timer finishes (shows TIME UP 5s + PLEASE CONCLUDE NOW 5s = 10s total, then auto starts or loads next if queue has items)
+  useEffect(() => {
+    if (isRemoteClient) return;
+    if (state.status !== 'finished' || !state.finishedAt) {
+      autoAdvancedFinishedAtRef.current = null;
+      return;
+    }
+
+    const mode = state.autoAdvanceMode;
+    if (mode !== 'auto-start' && mode !== 'auto-load' && mode !== 'auto-ready') {
+      return;
+    }
+
+    const queue = state.timerQueue || [];
+    if (queue.length === 0) return;
+
+    const interval = setInterval(() => {
+      const current = stateRef.current;
+      if (current.status !== 'finished' || !current.finishedAt) return;
+      if (autoAdvancedFinishedAtRef.current === current.finishedAt) return;
+
+      const elapsed = Math.floor((Date.now() - current.finishedAt) / 1000);
+      // Wait exactly 10s (5s TIME UP + 5s CONCLUDE NOW) before auto transitioning, with NO overtime count up
+      if (elapsed >= 10) {
+        const currentQueue = current.timerQueue || [];
+        const activeIdx = currentQueue.findIndex((q) => q.id === current.activeQueueItemId);
+        let nextItem: QueuedTimerItem | null = null;
+        if (activeIdx >= 0 && activeIdx < currentQueue.length - 1) {
+          nextItem = currentQueue[activeIdx + 1];
+        } else if (activeIdx === -1 && currentQueue.length > 0) {
+          nextItem = currentQueue[0];
+        }
+
+        if (nextItem) {
+          autoAdvancedFinishedAtRef.current = current.finishedAt;
+          const concludeTime = Date.now();
+          // Log Concluded in Timing Report
+          updateStateAndBroadcast((prev) => {
+            const concludedEntry: TimingReportEntry = {
+              id: `rpt-${concludeTime}-${Math.random().toString(36).substring(2, 6)}`,
+              timestamp: concludeTime,
+              timeFormatted: formatTimeOfDay(concludeTime, prev.clockFormat24),
+              eventType: 'CONCLUDED',
+              label: prev.activeTimerTitle || 'Live Timer',
+              plannedDurationSeconds: prev.initialDurationSeconds || prev.totalSeconds || 0,
+              actualDurationSeconds: (prev.initialDurationSeconds || prev.totalSeconds || 0) + 10,
+              notes: `Concluded segment (Auto-advanced to "${nextItem?.title || formatTime(nextItem?.totalSeconds || 0).text}")`,
+            };
+            return {
+              ...prev,
+              timingReport: [concludedEntry, ...(prev.timingReport || []).slice(0, 99)],
+            };
+          });
+
+          if (mode === 'auto-start') {
+            playQueueItem(nextItem.id);
+          } else {
+            loadQueueItemToStage(nextItem.id);
+          }
+        }
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [
+    state.status,
+    state.finishedAt,
+    state.autoAdvanceMode,
+    state.timerQueue,
+    isRemoteClient,
+    playQueueItem,
+    loadQueueItemToStage,
+    updateStateAndBroadcast,
+  ]);
 
   const triggerUpNextAlert = useCallback(
     (customTitle?: string, durationSeconds: number = 5) => {
@@ -1042,6 +1575,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sendActionToHost({ type: 'SET_UP_NEXT_SECONDS', payload: { seconds } });
         return;
       }
+      persistSettings({ upNextTriggerSeconds: seconds });
       updateStateAndBroadcast((prev) => ({
         ...prev,
         upNextTriggerSeconds: seconds,
@@ -1052,9 +1586,26 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [isRemoteClient, sendActionToHost, updateStateAndBroadcast]
   );
 
+  const processedActionIdsRef = useRef<Map<string, number>>(new Map());
+
   const executeAction = useCallback(
-    (action: { type: string; payload?: any }) => {
+    (action: { type: string; payload?: any; actionId?: string }) => {
       if (!action || !action.type) return;
+
+      // Idempotency: Ignore duplicate actions with the same actionId within 10 seconds
+      if (action.actionId) {
+        const now = Date.now();
+        for (const [id, timestamp] of processedActionIdsRef.current.entries()) {
+          if (now - timestamp > 10000) {
+            processedActionIdsRef.current.delete(id);
+          }
+        }
+        if (processedActionIdsRef.current.has(action.actionId)) {
+          return;
+        }
+        processedActionIdsRef.current.set(action.actionId, now);
+      }
+
       switch (action.type) {
         case 'START':
         case 'RESUME':
@@ -1069,8 +1620,20 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         case 'RESET':
           reset();
           break;
+        case 'SET_IDLE':
+          setIdle();
+          break;
         case 'TOGGLE_BLACKOUT':
           toggleBlackout();
+          break;
+        case 'SET_DURATION':
+          if (action.payload) {
+            setLiveDuration(
+              action.payload.hours || 0,
+              action.payload.minutes || 0,
+              action.payload.seconds || 0
+            );
+          }
           break;
         case 'ADD_TIME':
           if (action.payload) {
@@ -1166,6 +1729,29 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setColorScheme(action.payload.color);
           }
           break;
+        case 'SET_AUTO_ADVANCE_MODE':
+          if (action.payload?.mode) {
+            setAutoAdvanceMode(action.payload.mode);
+          }
+          break;
+        case 'SET_IDLE_DISPLAY_MODE':
+          if (action.payload?.mode) {
+            setIdleDisplayMode(action.payload.mode);
+          }
+          break;
+        case 'SET_CLOCK_FORMAT_24':
+          if (typeof action.payload?.clockFormat24 === 'boolean') {
+            setClockFormat24(action.payload.clockFormat24);
+          }
+          break;
+        case 'CLEAR_TIMING_REPORT':
+          clearTimingReport();
+          break;
+        case 'LOG_TIMING_EVENT':
+          if (action.payload?.type) {
+            logTimingEvent(action.payload.type, action.payload.notes, action.payload.customLabel);
+          }
+          break;
         case 'TRIGGER_UP_NEXT':
           triggerUpNextAlert(action.payload?.title, action.payload?.durationSeconds || 5);
           break;
@@ -1185,6 +1771,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       stop,
       reset,
       toggleBlackout,
+      setLiveDuration,
       addTimeToLive,
       subtractTimeFromLive,
       loadQueueToStage,
@@ -1200,6 +1787,11 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       playNextInQueue,
       loadNextInQueueToStage,
       setColorScheme,
+      setAutoAdvanceMode,
+      setIdleDisplayMode,
+      setClockFormat24,
+      clearTimingReport,
+      logTimingEvent,
       triggerUpNextAlert,
       dismissUpNextAlert,
       setUpNextTriggerSeconds,
@@ -1353,6 +1945,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     resume,
     stop,
     reset,
+    setIdle,
     addTimeToLive,
     subtractTimeFromLive,
     adjustRemainingTime,
@@ -1368,6 +1961,10 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     playNextInQueue,
     loadNextInQueueToStage,
     setAutoAdvanceMode,
+    setIdleDisplayMode,
+    setClockFormat24,
+    clearTimingReport,
+    logTimingEvent,
     triggerUpNextAlert,
     dismissUpNextAlert,
     setUpNextTriggerSeconds,

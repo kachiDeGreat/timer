@@ -33,7 +33,6 @@ export const CountdownQueue: React.FC = () => {
   } = useTimer();
 
   const queue = state.timerQueue || [];
-  const maxSlots = 5;
   const isRunning = state.status === "running";
 
   const activeIndex = queue.findIndex((item) => item.id === state.activeQueueItemId);
@@ -76,6 +75,7 @@ export const CountdownQueue: React.FC = () => {
     { label: "+10m", h: 0, m: 10, s: 0 },
     { label: "+15m", h: 0, m: 15, s: 0 },
     { label: "+30m", h: 0, m: 30, s: 0 },
+    { label: "+1h", h: 1, m: 0, s: 0 },
   ];
 
   return (
@@ -84,11 +84,9 @@ export const CountdownQueue: React.FC = () => {
       <div className="card-header queue-header">
         <div className="queue-title-wrap">
           <ListOrdered size={16} className="header-icon" />
-          <span className="card-label">COUNTDOWN QUEUE</span>
-          <span
-            className={`queue-badge ${queue.length >= maxSlots ? "is-full" : ""}`}
-          >
-            {queue.length} / {maxSlots} LOADED
+          <span className="card-label">COUNTDOWN PLAYLIST QUEUE</span>
+          <span className="queue-badge">
+            {queue.length} {queue.length === 1 ? "TIMER" : "TIMERS"}
           </span>
         </div>
 
@@ -100,228 +98,227 @@ export const CountdownQueue: React.FC = () => {
             title="Clear all queued timers"
           >
             <RotateCcw size={12} />
-            <span>Reset Queue</span>
+            <span>Clear Queue</span>
           </button>
         )}
       </div>
 
-      {/* The 5-Slot Queue List */}
+      {/* Dynamic Queue List (Unlimited Items) */}
       <div className="queue-slots-list">
-        {Array.from({ length: maxSlots }).map((_, index) => {
-          const item = queue[index];
-          const slotNum = index + 1;
+        {queue.length === 0 ? (
+          <div className="queue-slot-item is-empty queue-empty-state">
+            <div className="slot-empty-left">
+              <div className="slot-empty-text-group">
+                <span className="slot-empty-title">Queue is empty</span>
+                <span className="slot-empty-hint">
+                  Add countdowns from Builder or 1-tap quick chips below. Unlimited queues supported.
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          queue.map((item, index) => {
+            const slotNum = index + 1;
+            const isActive = state.activeQueueItemId === item.id;
+            const isItemRunning = isActive && isRunning;
+            const isItemPaused = isActive && state.status === "paused";
+            const isItemReady = isActive && state.status === "idle";
+            const isItemFinished = isActive && state.status === "finished";
 
-          if (!item) {
-            // Empty Slot Placeholder
+            const hasLabel = hasValidTimerLabel(item.title);
+            const isUpNext = !isActive && index === nextItemIndex;
+
+            let statusClass = "status-queued";
+            let statusText = "QUEUED";
+            if (isItemRunning) {
+              statusClass = "status-live";
+              statusText = "LIVE ON STAGE";
+            } else if (isItemPaused) {
+              statusClass = "status-paused";
+              statusText = "PAUSED";
+            } else if (isItemReady) {
+              statusClass = "status-ready";
+              statusText = "READY ON STAGE";
+            } else if (isItemFinished) {
+              statusClass = "status-finished";
+              statusText = "TIME UP";
+            } else if (isUpNext && hasLabel) {
+              statusClass = "status-upnext";
+              statusText = "UP NEXT";
+            }
+
+            const isEditingThis = editingId === item.id;
+
             return (
               <div
-                key={`empty-slot-${slotNum}`}
-                className="queue-slot-item is-empty"
+                key={item.id}
+                className={`queue-slot-item ${isActive ? "is-active-slot" : ""} ${
+                  isItemRunning ? "is-live-slot" : ""
+                }`}
               >
-                <div className="slot-empty-left">
-                  <span className="slot-num-badge">#{slotNum}</span>
-                  <span className="slot-empty-text">Empty Slot</span>
-                </div>
-                <div className="slot-empty-actions">
-                  <span className="slot-empty-hint">
-                    Use Builder or chips below to fill
-                  </span>
-                </div>
-              </div>
-            );
-          }
+                {/* Left Column: Number, Title, Digits */}
+                <div className="slot-info-col">
+                  <div className="slot-top-row">
+                    <span className="slot-num-badge">#{slotNum}</span>
+                    <span className={`slot-status-pill ${statusClass}`}>
+                      {isItemRunning && <span className="pulse-dot" />}
+                      {statusText}
+                    </span>
 
-          const isActive = state.activeQueueItemId === item.id;
-          const isItemRunning = isActive && isRunning;
-          const isItemPaused = isActive && state.status === "paused";
-          const isItemReady = isActive && state.status === "idle";
-          const isItemFinished = isActive && state.status === "finished";
+                    {/* Reorder Buttons */}
+                    <div className="slot-reorder-group">
+                      <button
+                        type="button"
+                        className="slot-reorder-btn"
+                        onClick={() => reorderQueue(index, index - 1)}
+                        disabled={index === 0}
+                        title="Move up"
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="slot-reorder-btn"
+                        onClick={() => reorderQueue(index, index + 1)}
+                        disabled={index === queue.length - 1}
+                        title="Move down"
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+                    </div>
+                  </div>
 
-          const hasLabel = hasValidTimerLabel(item.title);
-          const isUpNext = !isActive && index === nextItemIndex;
+                  <div className="slot-bottom-row">
+                    {isEditingThis ? (
+                      <div className="slot-title-edit-wrap">
+                        <input
+                          type="text"
+                          className="slot-title-input"
+                          placeholder="e.g. Sermon, Offering..."
+                          value={editTitleText}
+                          onChange={(e) => setEditTitleText(e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, item.id)}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="slot-save-btn"
+                          onClick={() => saveEditing(item.id)}
+                          title="Save title"
+                        >
+                          <Check size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className={`slot-title-display ${!hasLabel ? "is-unlabeled" : ""}`}
+                        onClick={() => startEditing(item)}
+                        title={
+                          hasLabel
+                            ? "Click to rename"
+                            : "Click to add label (required for Up Next cues)"
+                        }
+                      >
+                        <span className="slot-title-text">
+                          {hasLabel ? item.title : "(Click to add label)"}
+                        </span>
+                        <Edit2 size={11} className="slot-edit-icon" />
+                      </div>
+                    )}
 
-          let statusClass = "status-queued";
-          let statusText = "QUEUED";
-          if (isItemRunning) {
-            statusClass = "status-live";
-            statusText = "LIVE ON STAGE";
-          } else if (isItemPaused) {
-            statusClass = "status-paused";
-            statusText = "PAUSED";
-          } else if (isItemReady) {
-            statusClass = "status-ready";
-            statusText = "READY ON STAGE";
-          } else if (isItemFinished) {
-            statusClass = "status-finished";
-            statusText = "TIME UP";
-          } else if (isUpNext && hasLabel) {
-            statusClass = "status-upnext";
-            statusText = "UP NEXT";
-          }
-
-          const isEditingThis = editingId === item.id;
-
-          return (
-            <div
-              key={item.id}
-              className={`queue-slot-item ${isActive ? "is-active-slot" : ""} ${
-                isItemRunning ? "is-live-slot" : ""
-              }`}
-            >
-              {/* Left Column: Number, Title, Digits */}
-              <div className="slot-info-col">
-                <div className="slot-top-row">
-                  <span className="slot-num-badge">#{slotNum}</span>
-                  <span className={`slot-status-pill ${statusClass}`}>
-                    {isItemRunning && <span className="pulse-dot" />}
-                    {statusText}
-                  </span>
-
-                  {/* Reorder Buttons */}
-                  <div className="slot-reorder-group">
-                    <button
-                      type="button"
-                      className="slot-reorder-btn"
-                      onClick={() => reorderQueue(index, index - 1)}
-                      disabled={index === 0}
-                      title="Move up"
-                    >
-                      <ChevronUp size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="slot-reorder-btn"
-                      onClick={() => reorderQueue(index, index + 1)}
-                      disabled={index === queue.length - 1}
-                      title="Move down"
-                    >
-                      <ChevronDown size={13} />
-                    </button>
+                    <span className="slot-duration-digits">
+                      {formatTime(item.totalSeconds).text}
+                    </span>
                   </div>
                 </div>
 
-                <div className="slot-bottom-row">
-                  {isEditingThis ? (
-                    <div className="slot-title-edit-wrap">
-                      <input
-                        type="text"
-                        className="slot-title-input"
-                        placeholder="e.g. Sermon, Offering..."
-                        value={editTitleText}
-                        onChange={(e) => setEditTitleText(e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(e, item.id)}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        className="slot-save-btn"
-                        onClick={() => saveEditing(item.id)}
-                        title="Save title"
-                      >
-                        <Check size={12} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      className={`slot-title-display ${!hasLabel ? "is-unlabeled" : ""}`}
-                      onClick={() => startEditing(item)}
-                      title={hasLabel ? "Click to rename" : "Click to add label (required for Up Next cues)"}
-                    >
-                      <span className="slot-title-text">
-                        {hasLabel ? item.title : "(Click to add label)"}
-                      </span>
-                      <Edit2 size={11} className="slot-edit-icon" />
-                    </div>
-                  )}
-
-                  <span className="slot-duration-digits">
-                    {formatTime(item.totalSeconds).text}
-                  </span>
-                </div>
-              </div>
-
-              {/* Right Column: Actions (Play, Load Ready, Delete) */}
-              <div className="slot-actions-col">
-                {/* Direct Play / Pause / Start Button */}
-                <button
-                  type="button"
-                  className={`slot-action-btn ${isItemRunning ? "btn-live-pulse" : "btn-queue-play"}`}
-                  onClick={() => {
-                    if (isItemRunning) {
-                      pause();
-                    } else if (isItemPaused) {
-                      resume();
-                    } else {
-                      playQueueItem(item.id);
-                    }
-                  }}
-                  title={
-                    isItemRunning
-                      ? "Click to pause active timer"
-                      : isItemPaused
-                        ? "Click to resume active timer"
-                        : "Push directly to projector screen and START countdown now"
-                  }
-                  id={`btn-play-slot-${slotNum}`}
-                >
-                  {isItemRunning ? (
-                    <>
-                      <Pause size={13} fill="currentColor" />
-                      <span>PAUSE</span>
-                    </>
-                  ) : isItemPaused ? (
-                    <>
-                      <Play size={13} fill="currentColor" />
-                      <span>RESUME</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play size={13} fill="currentColor" />
-                      <span>PLAY</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Direct Cue Button for Up Next Slot - ONLY IF IT HAS A VALID TIMER LABEL */}
-                {isUpNext && hasLabel && (
+                {/* Right Column: Actions (Play, Load Ready, Delete) */}
+                <div className="slot-actions-col">
+                  {/* Direct Play / Pause / Start Button */}
                   <button
                     type="button"
-                    className="slot-action-btn btn-queue-cue"
-                    onClick={() => triggerUpNextAlert(item.title)}
-                    title={`Flash 'UP NEXT: ${item.title}' red drift animation on stage for 5s`}
-                    id={`btn-cue-slot-${slotNum}`}
+                    className={`slot-action-btn ${
+                      isItemRunning ? "btn-live-pulse" : "btn-queue-play"
+                    }`}
+                    onClick={() => {
+                      if (isItemRunning) {
+                        pause();
+                      } else if (isItemPaused) {
+                        resume();
+                      } else {
+                        playQueueItem(item.id);
+                      }
+                    }}
+                    title={
+                      isItemRunning
+                        ? "Click to pause active timer"
+                        : isItemPaused
+                        ? "Click to resume active timer"
+                        : "Push directly to projector screen and START countdown now"
+                    }
+                    id={`btn-play-slot-${slotNum}`}
                   >
-                    <Megaphone size={12} />
-                    <span>CUE</span>
+                    {isItemRunning ? (
+                      <>
+                        <Pause size={13} fill="currentColor" />
+                        <span>PAUSE</span>
+                      </>
+                    ) : isItemPaused ? (
+                      <>
+                        <Play size={13} fill="currentColor" />
+                        <span>RESUME</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play size={13} fill="currentColor" />
+                        <span>PLAY</span>
+                      </>
+                    )}
                   </button>
-                )}
 
-                {/* Load (Ready) Button */}
-                <button
-                  type="button"
-                  className={`slot-action-btn btn-queue-load ${isItemReady ? "active-ready" : ""}`}
-                  onClick={() => loadQueueItemToStage(item.id)}
-                  title="Load this timer to stage in READY mode (standby, waiting for speaker)"
-                  id={`btn-load-slot-${slotNum}`}
-                >
-                  <MonitorCheck size={13} />
-                  <span>LOAD</span>
-                </button>
+                  {/* Direct Cue Button for Up Next Slot - ONLY IF IT HAS A VALID TIMER LABEL */}
+                  {isUpNext && hasLabel && (
+                    <button
+                      type="button"
+                      className="slot-action-btn btn-queue-cue"
+                      onClick={() => triggerUpNextAlert(item.title)}
+                      title={`Flash 'UP NEXT: ${item.title}' red drift animation on stage for 5s`}
+                      id={`btn-cue-slot-${slotNum}`}
+                    >
+                      <Megaphone size={12} />
+                      <span>CUE</span>
+                    </button>
+                  )}
 
-                {/* Delete Button */}
-                <button
-                  type="button"
-                  className="slot-delete-btn"
-                  onClick={() => removeFromQueue(item.id)}
-                  title="Remove from queue"
-                  id={`btn-delete-slot-${slotNum}`}
-                >
-                  <Trash2 size={13} />
-                </button>
+                  {/* Load (Ready) Button */}
+                  <button
+                    type="button"
+                    className={`slot-action-btn btn-queue-load ${
+                      isItemReady ? "active-ready" : ""
+                    }`}
+                    onClick={() => loadQueueItemToStage(item.id)}
+                    title="Load this timer to stage in READY mode (standby, waiting for speaker)"
+                    id={`btn-load-slot-${slotNum}`}
+                  >
+                    <MonitorCheck size={13} />
+                    <span>LOAD</span>
+                  </button>
+
+                  {/* Delete Button */}
+                  <button
+                    type="button"
+                    className="slot-delete-btn"
+                    onClick={() => removeFromQueue(item.id)}
+                    title="Remove from queue"
+                    id={`btn-delete-slot-${slotNum}`}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* Quick Add Chips Footer */}
@@ -334,7 +331,6 @@ export const CountdownQueue: React.FC = () => {
               type="button"
               className="quick-chip-pill"
               onClick={() => addToQueue(chip.h, chip.m, chip.s, "")}
-              disabled={queue.length >= maxSlots}
               title={`Add ${chip.label} countdown to queue`}
             >
               <Plus size={11} />

@@ -47,24 +47,29 @@ function getPrimaryIp() {
 }
 
 const DEFAULT_STATE = {
-  totalSeconds: 600,
-  remainingSeconds: 600,
+  totalSeconds: 0,
+  remainingSeconds: 0,
+  initialDurationSeconds: 0,
+  activeTimerTitle: '',
   status: 'idle',
   queuedHours: 0,
-  queuedMinutes: 10,
+  queuedMinutes: 0,
   queuedSeconds: 0,
   colorScheme: 'white',
   isBlackout: true,
   lastUpdated: Date.now(),
-  lastAction: 'Ready',
+  lastAction: 'Ready (00:00)',
   finishedAt: null,
   targetEndTime: null,
   timerQueue: [],
   autoAdvanceMode: 'manual',
   activeQueueItemId: null,
+  idleDisplayMode: 'zero',
+  clockFormat24: false,
   upNextAlertUntil: null,
   upNextAlertTitle: null,
   upNextTriggerSeconds: 60,
+  timingReport: [],
 };
 
 class RemoteControlServer {
@@ -79,6 +84,27 @@ class RemoteControlServer {
     this.distDir = path.join(__dirname, '../dist');
     this.isDev = false;
     this.heartbeatTimer = null;
+    this.processedActionIds = new Map();
+  }
+
+  dispatchAction(action) {
+    if (!action) return;
+    const actionId = action.actionId;
+    if (actionId) {
+      const now = Date.now();
+      for (const [id, time] of this.processedActionIds.entries()) {
+        if (now - time > 10000) {
+          this.processedActionIds.delete(id);
+        }
+      }
+      if (this.processedActionIds.has(actionId)) {
+        return;
+      }
+      this.processedActionIds.set(actionId, now);
+    }
+    if (this.onActionCallback) {
+      this.onActionCallback(action);
+    }
   }
 
   init({ port = DEFAULT_PORT, distDir, isDev = false, onAction, onClientsChange }) {
@@ -205,8 +231,8 @@ class RemoteControlServer {
 
     if (message.type === 'ACTION') {
       const action = message.action;
-      if (action && this.onActionCallback) {
-        this.onActionCallback(action);
+      if (action) {
+        this.dispatchAction(action);
       }
     } else if (message.type === 'REQUEST_STATE') {
       if (this.currentState) {
@@ -297,6 +323,66 @@ class RemoteControlServer {
       return;
     }
 
+    if (pathname === '/api/settings') {
+      const settingsPath = path.join(__dirname, '../settings.json');
+      if (req.method === 'GET') {
+        try {
+          if (fs.existsSync(settingsPath)) {
+            const data = fs.readFileSync(settingsPath, 'utf8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+            return;
+          }
+        } catch (err) {
+          console.warn('[RemoteServer] Failed to read settings.json:', err);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            idleDisplayMode: 'zero',
+            clockFormat24: false,
+            autoAdvanceMode: 'manual',
+            upNextTriggerSeconds: 60,
+            colorScheme: 'white',
+            timerQueue: [],
+          })
+        );
+        return;
+      }
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(body);
+            let current = {
+              idleDisplayMode: 'zero',
+              clockFormat24: false,
+              autoAdvanceMode: 'manual',
+              upNextTriggerSeconds: 60,
+              colorScheme: 'white',
+              timerQueue: [],
+            };
+            if (fs.existsSync(settingsPath)) {
+              try {
+                current = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+              } catch {}
+            }
+            const updated = { ...current, ...parsed };
+            fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, settings: updated }));
+          } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+        return;
+      }
+    }
+
     if (pathname === '/api/state') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(this.currentState || {}));
@@ -312,8 +398,8 @@ class RemoteControlServer {
         try {
           const parsed = JSON.parse(body);
           const action = parsed.action || parsed;
-          if (this.onActionCallback && action) {
-            this.onActionCallback(action);
+          if (action) {
+            this.dispatchAction(action);
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));

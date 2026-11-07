@@ -51,5 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('remote-clients-changed', subscription);
     };
   },
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 });
 

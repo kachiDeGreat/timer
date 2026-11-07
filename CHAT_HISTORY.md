@@ -161,3 +161,224 @@ All production packages are built and verified in the [release/](file:///home/on
 | **Add / Subtract Time** | Click quick chips (`+1m`, `+5m`, `-1m`) | — | Quick adjust chips (`+30s` to `+5m`) |
 | **Fullscreen Toggle** | Header button or `F11` | Double-click projector screen or `F11` | — |
 | **Cue Up Next Alert** | Click `Cue Up Next (5s)` | — | Tap `CUE UP NEXT` on queue item |
+
+---
+
+## 9. Mobile Remote Double-Dispatch & Time Adjustments Fixes (Version 1.0.4)
+
+### A. Problems Identified & Root Causes
+1. **Queue Items Added Twice**:
+   - **Symptom**: Tapping "+ ADD TO QUEUE" or any quick-add chip (`+2m`, `+5m`...) on the phone added the timer item twice to the queue.
+   - **Root Cause**: `sendActionToHost` in [TimerContext.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/context/TimerContext.tsx) was sending the action over WebSocket, and without returning, immediately executing a secondary HTTP POST to `/api/action`. Because both transports reached the master server, the host dispatched and executed `addToQueue` twice.
+2. **Time Adjustment Multiplied / Unpredictable (1m became 10m / 30m became 1h)**:
+   - **Symptom**: Adding 30 minutes added 1 hour; subtracting 5 minutes subtracted 10 minutes.
+   - **Root Cause**: The same double-dispatch bug caused `ADD_TIME` and `SUBTRACT_TIME` actions to execute twice in immediate succession (e.g., +30m + 30m = 60m = 1h; -5m + -5m = -10m).
+3. **Ambiguous Digital Clock Formatting**:
+   - In the Adjust card, applying 1 minute formatted as `-01:00`, which was visually misread by operators as 1 hour rather than 1 minute.
+4. **Stale Staging Defaults Overwriting Host Queued Times**:
+   - The Builder steppers initialized to local default state (`0h 10m 0s`) and did not sync with the host's actual staged duration on initial load, inadvertently overwriting staged times when steppers were touched.
+
+### B. The Solutions Implemented
+1. **Triple-Layer Action Deduplication & Single-Transport Guarantee**:
+   - **Layer 1 (Client)**: [TimerContext.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/context/TimerContext.tsx) generates a unique `actionId` (`act-${timestamp}-${random}`) per user action. If WebSocket is connected (`readyState === OPEN`), it sends over WS and terminates immediately (`return`), completely eliminating redundant HTTP POST fallback calls.
+   - **Layer 2 (Host / Remote Server)**: [remoteServer.cjs](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/electron/remoteServer.cjs) and [vite.config.ts](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/vite.config.ts) track recently processed `actionId`s within a 10-second window, dropping any duplicate payloads.
+   - **Layer 3 (Authoritative React Host)**: `executeAction` guards execution against duplicate `actionId`s.
+2. **Instant 1-Tap Quick Adjust Live Clock Bar**:
+   - Directly below the master transport controls on the "Live & Controls" screen of [MobileRemoteView.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/components/MobileRemoteView.tsx), added instant 1-tap adjustment chips:
+     - Minus: `[-5m]`, `[-1m]`, `[-30s]`
+     - Plus: `[+30s]`, `[+1m]`, `[+5m]`
+   - Operators can adjust the live countdown directly without navigating away to the builder tab.
+3. **Enhanced Mobile Adjust Card with Steppers & Active Highlighting**:
+   - Added full `HRS`, `MIN`, `SEC` stepper controls for both Add and Subtract modes.
+   - Added active visual highlight (`is-active` / `is-active-sub`) on chips matching current inputs.
+   - Replaced ambiguous digital string buttons with crystal-clear human-readable labels:
+     `APPLY +1m TO LIVE CLOCK`, `APPLY -1m TO LIVE CLOCK`, `APPLY -30m TO LIVE CLOCK`, `APPLY -1h TO LIVE CLOCK`.
+4. **Touch Debounce & Synchronization**:
+   - Wrapped mobile action buttons with a 350ms cooldown lock (`withActionLock`) to prevent hardware double-tap triggers.
+   - Synchronized initial builder steppers with host queued durations upon connecting.
+
+### C. Default 00:00 Startup Clock
+- **Requirement**: When the app first starts, the master clock should display `00:00` (ready for operators to build, load presets, or enqueue timers) instead of seeding with `10:00`.
+- **Fix**:
+  1. Updated `DEFAULT_TIMER_STATE` in [timer.ts](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/types/timer.ts) (`totalSeconds: 0, remainingSeconds: 0, queuedMinutes: 0`).
+  2. Updated `DEFAULT_STATE` in [remoteServer.cjs](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/electron/remoteServer.cjs) to initialize to `00:00`.
+  3. Added localStorage purge in `loadInitialState()` in [TimerContext.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/context/TimerContext.tsx) to clear any legacy `600s` (`10:00`) idle state.
+  4. Updated builder fallback display in [ControlSurface.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/components/ControlSurface.tsx) and [MobileRemoteView.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB%20DEV/Web%20Dev/timer/src/components/MobileRemoteView.tsx) to `00:00`.
+
+---
+
+## 10. Production Distribution Packages (v1.0.4)
+
+| Platform | Format | Filename | Size | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Windows** | **NSIS Setup Installer** | `StageTimer Pro Setup 1.0.4.exe` | **119 MB** | Standard Windows installer with desktop shortcut & uninstaller |
+| **Windows** | **Portable** | `StageTimer Pro 1.0.4.exe` | **106 MB** | Single-file portable executable (runs directly off USB drives without install) |
+| **Linux** | **AppImage** | `StageTimer Pro-1.0.4.AppImage` | **125 MB** | Universal Linux standalone executable (Ubuntu, Debian, Fedora, Arch) |
+| **Linux** | **Debian/Ubuntu** | `stagetimer-pro_1.0.4_amd64.deb` | **99 MB** | Native Debian/Ubuntu package with desktop menu integration |
+| **macOS** | **Zip Bundle (v1.0.3)** | `StageTimer Pro-1.0.3-mac.zip` | **121 MB** | Preserved v1.0.3 bundle (macOS build skipped as requested) |
+
+---
+
+## 11. Web & Feature Overhaul (Version 1.0.5)
+
+### A. Reset Behavior Bug Fix
+- **Problem**: When a 5-minute timer was running and an operator prepared or queued a 1-minute timer, clicking RESET reset the countdown to 1 minute instead of the original 5 minutes.
+- **Root Cause**:
+  1. `state.queuedHours`, `state.queuedMinutes`, and `state.queuedSeconds` were being modified by builder inputs.
+  2. When `reset()` transitioned state to `'idle'`, clicking START subsequently executed `pushQueueToLive()`, which calculated its duration from `queuedHours/queuedMinutes/queuedSeconds` (the 1-minute item) instead of preserving the active timer session's planned duration.
+- **Solution**:
+  1. Added `initialDurationSeconds` to `TimerState` to track the authoritative planned duration for the active timer session.
+  2. Fixed `reset()` to strictly restore `remainingSeconds` to `activeItem.totalSeconds` (if tied to a queue item) or `prev.initialDurationSeconds` (if manual countdown).
+  3. Fixed START in both Control Surface and Mobile Remote: when `status === 'idle'` and `remainingSeconds > 0`, clicking START resumes/starts the staged duration rather than recalculating from builder inputs.
+
+### B. Default Idle Display Mode (00:00 vs Live Device Clock)
+- **Requirement**: When idle, the stage screen should display `00:00` or a live digital clock showing device local time.
+- **Solution**:
+  1. Added `idleDisplayMode: 'zero' | 'clock'` and `clockFormat24: boolean` settings.
+  2. Configurable via both Desktop Settings Modal and Mobile Controller.
+  3. In `ProjectorDisplay.tsx`, when `idleDisplayMode === 'clock'`, displays live device wall clock time with AM/PM or 24-hour formatting, ticking smoothly every second with zero drift.
+
+### C. Unlimited Timing Queue
+- **Requirement**: Remove the previous 5-timer queue limit so users can queue as many countdowns as needed.
+- **Solution**:
+  1. Removed `queue.length >= 5` checks across `TimerContext.tsx`, `CountdownQueue.tsx`, `ControlSurface.tsx`, and `MobileRemoteView.tsx`.
+  2. Dynamic scrollable queue view with inline editing, quick reordering (Move Up / Down), status pills (`LIVE`, `PAUSED`, `READY`, `QUEUED`), and 1-tap delete.
+
+### D. Queue Transition Automation Modes
+- **Requirement**: When a timer finishes, allow user to choose in settings:
+  1. `auto-start`: Shows "TIME UP" (5s) and "PLEASE CONCLUDE NOW" (5s) -> automatically starts next queued item without overtime count up.
+  2. `auto-load`: Shows "TIME UP" (5s) and "PLEASE CONCLUDE NOW" (5s) -> loads next queued item in Ready/Standby mode on stage.
+  3. `manual`: Operator controls next item; counts overtime indefinitely after 10s.
+  - Active only when queue has items.
+- **Solution**:
+  - Implemented automatic transition effect in `TimerContext.tsx` that triggers precisely at `elapsed >= 10` when `autoAdvanceMode` is set to `auto-start` or `auto-load` and next queued item is present.
+
+### E. Event Timing Report & Session Audit Trail
+- **Requirement**: Full timing report tracking when timers started, paused, resumed, stopped, reset, overtime taken, and time added/removed, with a printable report page.
+- **Solution**:
+  1. Created `TimingReportModal.tsx` for Desktop and embedded Report View in Mobile Remote.
+  2. Tracks all event types with timestamps, planned durations, actual durations, and overtime.
+  3. Summary metrics: Total Segments, Planned Duration, Overtime Accrued, Audit Log Count.
+  4. Print-optimized CSS (`@media print`): prints a broadcast run sheet for service directors, pastors, and producers via `window.print()`.
+  5. 1-click CSV spreadsheet export (`StageTimer_Report_YYYY-MM-DD.csv`).
+
+### F. Buttery-Smooth Canva Drift Cue Transitions
+- **Requirement**: Make the UP NEXT stage alert cue transitions significantly smoother without abrupt pops.
+- **Solution**:
+  1. Restructured `ProjectorDisplay.tsx` to mount the Canva Drift banner as an overlay on top of the stage digits container.
+  2. Added `cueSmoothDrift` keyframes with cubic-bezier easing: smooth fade-in over first 0.4s (8%), smooth sweep across the display, and smooth cross-dissolve exit (last 10%) seamlessly revealing the running timer digits.
+
+### G. Streamlined Mobile Remote Controller Redesign
+- **Requirement**: Declutter the mobile interface, remove bloated duplicate steppers, and provide fast, thumb-friendly navigation.
+- **Solution**:
+  1. Redesigned `MobileRemoteView.tsx` with a modern 3-tab layout:
+     - ⏱ **Live Control**: Big readable clock hero card, thumb-friendly transport (`START LIVE`, `PAUSE`, `STOP`, `RESET`), 1-tap quick adjustment bar (`-1m`, `-30s`, `+30s`, `+1m`, `+5m`), and Up Next banner.
+     - 📋 **Queue**: Clean playlist with quick duration chips (`5m`, `10m`, `15m`, `20m`, `30m`, `45m`, `1h`), compact `HH:MM:SS` duration builder, and unlimited scrollable queue cards.
+     - 📊 **Report & Config**: In-app Event Timing Report table, Print/CSV buttons, and full Settings toggles.
+
+---
+
+## 12. Persistent User Settings (`settings.json`) & Clean Startup/Unblank Zero Display
+
+### A. Root Cause Analysis of Stale Overtime Display (`-72:43:56`)
+- **Problem**: When unblanking or launching the app, the stage projector preview displayed an extreme negative overtime (`-72:43:56`).
+- **Cause**: `TimerContext.tsx` was saving full runtime countdown state (`remainingSeconds`, `status: 'finished'`, `finishedAt`) to `localStorage` under `STAGE_TIMER_STATE_V2`. When reopened 72 hours later, `loadInitialState()` restored the old `finishedAt` timestamp, which `ProjectorDisplay.tsx` computed as 72 hours of accrued overtime.
+
+### B. Implementation of Pure `settings.json` Storage & Runtime State Decoupling
+1. **Purged Runtime Persistence**:
+   - `loadInitialState()` automatically purges `STAGE_TIMER_STATE_V2` and `STAGE_TIMER_STATE` from `localStorage` on boot.
+   - `broadcastState()` no longer writes countdown runtime state to `localStorage`. Active timer state lives strictly in memory and syncs across active tabs and clients via `BroadcastChannel`, WebSockets, and Electron IPC.
+2. **Standard `settings.json` File**:
+   - Stored in workspace root `settings.json`:
+     ```json
+     {
+       "idleDisplayMode": "zero",
+       "clockFormat24": false,
+       "autoAdvanceMode": "manual",
+       "upNextTriggerSeconds": 60,
+       "colorScheme": "white"
+     }
+     ```
+3. **API Endpoints (`GET /api/settings` and `POST /api/settings`)**:
+   - Added in `vite.config.ts` for browser web dev server.
+   - Added in `electron/remoteServer.cjs` for mobile remote and standalone server.
+   - Added in `electron/main.cjs` via `get-settings` and `save-settings` IPC handlers.
+4. **Guaranteed Default Clean Unblank Display**:
+   - When the user clicks **UNBLANK SCREEN**, `remainingSeconds` starts strictly at `0` in `idle` status.
+   - By default, displays `00:00` in crisp white digits.
+   - If the user changes **Default Idle Screen Display** to **Device Clock** in Settings, unblanking displays the live local wall clock.
+   - Zero stale timers, zero overtime resurrecting across sessions.
+
+---
+
+## 13. Settings Modal Restyling & Multi-Color Stage Theme Customization
+
+### A. Settings Modal Architectural Restyle
+- **Root Cause of Cluttered/Left-Aligned Modal**: `.modal-backdrop` was missing standard fixed centering and backdrop filter styles, causing the settings modal to render in-flow from the left screen boundary and obscuring the control surface.
+- **Restyled Layout**:
+  1. Centered floating modal overlay with dark frosted glass (`background-color: rgba(0, 0, 0, 0.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 99999;`).
+  2. Sleek broadcast console header with emerald icon badge, clear titles, and circular close icon button (`X`) with hover rotation and ESC key support.
+  3. Clean card layout for all 4 settings modules with custom scrollbar, distinct selection borders, and emerald badges.
+  4. Footer featuring **Restore Defaults** and primary **Done** action buttons.
+
+### B. Stage Digit Color Customization (Beyond White and Blue)
+- **Problem**: Users were restricted to only two hardcoded themes (White and Blue).
+- **Solution**:
+  1. **8 Broadcast Presets**: Studio White (`#ffffff`), Electric Sky (`#38bdf8`), Vivid Cyan (`#06b6d4`), Emerald Green (`#10b981`), Amber Gold (`#f59e0b`), Vivid Orange (`#f97316`), Neon Purple (`#a855f7`), and Hot Coral (`#f43f5e`).
+  2. **Interactive Custom Hex Picker**: Added native color wheel picker (`<input type="color">`) plus direct `#HEX` input with live validation, enabling any church or corporate brand color.
+  3. **Universal Display Integration**: Dynamically renders across Desktop Control Surface preview, Fullscreen Projector Window, and Mobile Remote View. Overtime retains authoritative `#ff0000` red.
+
+---
+
+## 14. Professional Software Redesign: Clean Clock (No Seconds), Removal of Duplicate Home Settings & Anti-Glow Flat UI
+
+### A. Stage Display Clock Formatting
+- **Time without seconds**: `formatDeviceClock` formats strictly `${h}:${m}` (e.g. `01:59` instead of `01:59:08`), avoiding distracting speaker visual clutter.
+- **Removed "CURRENT TIME" label**: Completely removed the redundant badge. The display renders clean, bold digits with subtle `AM`/`PM` period indicator in 12-hour mode.
+
+### B. Clean Home Screen (Removal of Duplicate Settings)
+- **Removed Stage Display Settings Card**: Completely deleted the duplicate `STAGE DISPLAY SETTINGS` card from the bottom-left of `ControlSurface.tsx`. Operators access all configuration directly via the topbar **Settings** dialog, keeping the main operator surface uncluttered.
+
+### C. Flat Professional AV Software Settings (Anti-Glow Redesign)
+- **Problem**: The settings screen previously incorporated glowing AI-style visual elements (neon text-shadows, mock TV monitors, glowing drop shadows, and sparkles).
+- **Solution**:
+  1. Stripped out all `text-shadow` glows, glowing borders (`box-shadow: 0 0 ...`), and neon halos.
+  2. Removed decorative TV monitor mockups and sparkles icons.
+  3. Replaced with clean, flat broadcast software styling (solid neutral `#18181b` surface, crisp 1px `#2e2e33` borders, clean solid `#2563eb` active button states, and high-density, legible typography).
+---
+
+## 15. New Official Brand App Icon & Favicon Suite Across Linux, Windows, macOS & Web (v1.0.5)
+
+- **Version Bump**: Bumped application release version to `1.0.5` across `package.json` and build artifacts.
+- **Brand Artwork Integration**: Replaced legacy graphics with the official vibrant hourglass-and-arrow stopwatch icon:
+  - **Linux Desktop & Package Icons** (`build/icons/`): Generated crisp multi-resolution PNGs at `16x16`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256`, and `512x512` for desktop environment launchers, Ubuntu Dash, `.deb`, and `AppImage`.
+  - **Windows Executable & Installer Icon** (`build/icon.ico`): Generated Windows multi-size ICO binary embedding `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, and `256x256` mipmaps for File Explorer, taskbar, Alt+Tab, and NSIS installer.
+  - **macOS App & Window Icon** (`build/icon.png`): High-resolution `512x512` RGBA master icon with transparent rounded contours.
+  - **Web Favicon & Browser PWA Icons** (`public/icon.png`, `public/favicon.ico`): High-res `512x512` web icon and multi-size favicon for browser tabs and mobile shortcuts.
+### Desktop Release Packages (v1.0.5)
+
+| Platform | Format | Filename | Size | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Linux** | **AppImage** | `StageTimer Pro-1.0.5.AppImage` | **126 MB** | Universal standalone Linux executable (Ubuntu, Debian, Fedora, Arch) |
+| **Linux** | **Debian/Ubuntu** | `stagetimer-pro_1.0.5_amd64.deb` | **100 MB** | Native Debian/Ubuntu package with desktop application launcher |
+| **Windows** | **NSIS Installer** | `StageTimer Pro Setup 1.0.5.exe` | **119 MB** | Standard Windows installer with start menu and desktop shortcuts |
+| **Windows** | **Portable** | `StageTimer Pro 1.0.5.exe` | **107 MB** | Single-file portable executable (runs directly off USB drives without install) |
+| **macOS** | **Zip Bundle** | `StageTimer Pro-1.0.5-mac.zip` | **122 MB** | macOS application archive containing `StageTimer Pro.app` |
+---
+
+## 16. Dedicated 'SET IDLE' Transport Button & Timing Cue / Settings Persistence (settings.json)
+
+### A. Dedicated 'SET IDLE' Transport Control
+- **Problem**: Operators previously had to close and restart the application just to return the projector/stage screen to Idle mode (`00:00` or Device Clock) after running or loading timers.
+- **Solution**:
+  1. **New Action (`setIdle`)**: Added `setIdle` in `TimerContext.tsx` and WebSocket action dispatch `{ type: 'SET_IDLE' }`.
+  2. **Instant Transition**: Immediately stops active running timers or overtime, clears staged labels and active queue selections, and returns the stage display cleanly to Idle mode (`00:00` or local Device Clock, as configured in Settings) without wiping the queued playlist.
+  3. **Desktop Transport Button**: Added a dedicated `SET IDLE` button (with `Clock` icon) inside the master transport bar in `ControlSurface.tsx`.
+  4. **Mobile Remote Button**: Added `SET IDLE` to the secondary transport controls in `MobileRemoteView.tsx`, allowing stage directors to return the screen to Idle mode with a single tap from their phone or tablet.
+
+### B. Persistent Timing Cues & Settings (settings.json)
+- **Problem**: Accidental browser refresh or closing the app caused operators to lose their entire prepared countdown playlist cues and forced them to recreate them.
+- **Solution**:
+  1. **Integrated `timerQueue` in `settings.json`**: Extended backend API endpoints (`/api/settings` across `vite.config.ts`, `electron/remoteServer.cjs`, and `electron/main.cjs`) to store and retrieve `timerQueue`.
+  2. **Automatic Sync**: Any cue playlist mutation (`addToQueue`, `removeFromQueue`, `reorderQueue`, `updateQueueItemTitle`, `clearQueue`) automatically writes the updated list to `settings.json` and syncs with `localStorage`.
+  3. **Safe Startup Restoration**: When reopening the app or browser, the full playlist of timing cues is restored immediately, starting cleanly in Idle mode without resurrecting expired countdowns or overtime.

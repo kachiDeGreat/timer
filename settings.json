@@ -1,0 +1,8 @@
+{
+  "idleDisplayMode": "clock",
+  "clockFormat24": false,
+  "autoAdvanceMode": "manual",
+  "upNextTriggerSeconds": 60,
+  "colorScheme": "#ffffff",
+  "timerQueue": []
+}

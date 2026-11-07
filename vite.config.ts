@@ -1,10 +1,30 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { WebSocketServer } from 'ws'
+import fs from 'fs'
+import path from 'path'
 
 function remoteSyncPlugin(): Plugin {
   let currentState: any = null;
   const clients = new Set<any>();
+  const processedActionIds = new Map<string, number>();
+
+  const dispatchRelayAction = (action: any) => {
+    if (!action || !action.type) return;
+    const actionId = action.actionId;
+    if (actionId) {
+      const now = Date.now();
+      for (const [id, ts] of processedActionIds.entries()) {
+        if (now - ts > 10000) processedActionIds.delete(id);
+      }
+      if (processedActionIds.has(actionId)) return;
+      processedActionIds.set(actionId, now);
+    }
+    const relayMsg = JSON.stringify({ type: 'ACTION_RELAY', action });
+    clients.forEach((c) => {
+      if (c.readyState === 1) c.send(relayMsg);
+    });
+  };
 
   return {
     name: 'stagetimer-remote-sync',
@@ -37,6 +57,66 @@ function remoteSyncPlugin(): Plugin {
             );
           });
           return;
+        }
+
+        if (req.url === '/api/settings') {
+          const settingsPath = path.resolve(process.cwd(), 'settings.json');
+          if (req.method === 'GET') {
+            try {
+              if (fs.existsSync(settingsPath)) {
+                const data = fs.readFileSync(settingsPath, 'utf8');
+                res.setHeader('Content-Type', 'application/json');
+                res.end(data);
+                return;
+              }
+            } catch (err) {
+              console.warn('[vite] Failed to read settings.json:', err);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                idleDisplayMode: 'zero',
+                clockFormat24: false,
+                autoAdvanceMode: 'manual',
+                upNextTriggerSeconds: 60,
+                colorScheme: 'white',
+                timerQueue: [],
+              })
+            );
+            return;
+          }
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', (chunk) => {
+              body += chunk;
+            });
+            req.on('end', () => {
+              try {
+                const parsed = JSON.parse(body);
+                let current = {
+                  idleDisplayMode: 'zero',
+                  clockFormat24: false,
+                  autoAdvanceMode: 'manual',
+                  upNextTriggerSeconds: 60,
+                  colorScheme: 'white',
+                  timerQueue: [],
+                };
+                if (fs.existsSync(settingsPath)) {
+                  try {
+                    current = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+                  } catch {}
+                }
+                const updated = { ...current, ...parsed };
+                fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: true, settings: updated }));
+              } catch (err: any) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: err.message }));
+              }
+            });
+            return;
+          }
         }
 
         if (req.url === '/api/state') {
@@ -78,10 +158,7 @@ function remoteSyncPlugin(): Plugin {
             try {
               const parsed = JSON.parse(body);
               const action = parsed.action || parsed;
-              const relayMsg = JSON.stringify({ type: 'ACTION_RELAY', action });
-              clients.forEach((c) => {
-                if (c.readyState === 1) c.send(relayMsg);
-              });
+              dispatchRelayAction(action);
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ success: true }));
             } catch (err: any) {
@@ -132,10 +209,7 @@ function remoteSyncPlugin(): Plugin {
           try {
             const msg = JSON.parse(data.toString());
             if (msg.type === 'ACTION') {
-              const relayMsg = JSON.stringify({ type: 'ACTION_RELAY', action: msg.action });
-              clients.forEach((c) => {
-                if (c.readyState === 1) c.send(relayMsg);
-              });
+              dispatchRelayAction(msg.action);
             } else if (msg.type === 'REQUEST_STATE') {
               if (currentState) {
                 try {
