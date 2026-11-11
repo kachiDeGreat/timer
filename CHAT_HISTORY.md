@@ -382,3 +382,120 @@ All production packages are built and verified in the [release/](file:///home/on
   1. **Integrated `timerQueue` in `settings.json`**: Extended backend API endpoints (`/api/settings` across `vite.config.ts`, `electron/remoteServer.cjs`, and `electron/main.cjs`) to store and retrieve `timerQueue`.
   2. **Automatic Sync**: Any cue playlist mutation (`addToQueue`, `removeFromQueue`, `reorderQueue`, `updateQueueItemTitle`, `clearQueue`) automatically writes the updated list to `settings.json` and syncs with `localStorage`.
   3. **Safe Startup Restoration**: When reopening the app or browser, the full playlist of timing cues is restored immediately, starting cleanly in Idle mode without resurrecting expired countdowns or overtime.
+---
+
+## 17. App Super-Settings (settings.json), Auto-Saved Queues (queue.json), Native File Manager Save, and Space-Optimized Display Digits
+
+### A. Dedicated App Super-Settings (settings.json) & Auto-Saved Timing Cue (queue.json)
+- **Separation of Concerns**:
+  - `settings.json`: Stores application-wide super-settings (`idleDisplayMode`, `clockFormat24`, `autoAdvanceMode`, `upNextTriggerSeconds`, `colorScheme`).
+  - `queue.json`: Dedicated auto-save destination for active countdown playlist items (`id`, `title`, `hours`, `minutes`, `seconds`, `totalSeconds`).
+- **Zero Loss on Accidental Close**: Any addition, reordering, title edit, or deletion in the queue auto-saves immediately into `queue.json` and syncs with `localStorage`. If the operator closes the app by mistake, the full queue is restored on startup while starting safely in Idle display mode.
+- **Backend API Endpoints**: Dedicated `/api/settings` and `/api/queue` endpoints implemented in Vite server, Electron Remote Server, and Electron IPC (`get-settings`, `save-settings`, `get-queue`, `save-queue`).
+
+### B. "Save Queue" & "Load Queue" Desktop File Manager Integration
+- **Manual Save Queue**: Added a dedicated `Save Queue` button in the Countdown Playlist Queue header.
+  - **Desktop (Electron)**: Invokes native `dialog.showSaveDialog` opening the OS file manager for the operator to choose destination folder and filename (`stagetimer-queue.json`).
+  - **Web Browser**: Utilizes modern File System Access API (`showSaveFilePicker`) to open native OS file save dialog, with automatic fallback to browser download.
+- **Load Queue**: Added `Load Queue` button allowing operators to open and import previously saved queue playlist files from their computer.
+
+### C. Space-Optimized Digital Time Formatting & Bolder, Bigger Digits
+- **Problem**: Displaying standard `HH:MM:SS` or leading zeros on single-digit minutes (e.g. `09:30`, `05:00`, `01:05:00`) consumed unnecessary horizontal space, reducing the maximum possible digit size on smaller displays and monitors.
+- **Solution**:
+  - For single-digit minutes (<10 mins): Renders `M:SS` without leading zero (e.g., `9:30` instead of `09:30`, `5:00` instead of `05:00`, `0:00` instead of `00:00`).
+  - For hours: Renders `H:MM:SS` without leading zero on hours (e.g., `1:05:30` instead of `01:05:30`).
+  - Scaled up stage display typography font-size clamp in `index.css` (`clamp(8.5rem, 40vw, 62vh)` with font-weight 950) so numerals render significantly bigger and bolder on projector screens, stage monitors, and mobile controllers.
+
+
+## Section 18: 12-Hour Clock Screen Clipping Fix & Mobile Remote Tabbed Time Adjuster (Version 1.0.5)
+
+### 1. Stage Device Clock 12-Hour Scaling Fix
+- **Root Cause Analysis**: Photos of the projector display in 12-hour format showed `03:06 P` cut off on the left (the leading `0` was clipped) and on the right (the `M` in `PM` was pushed offscreen), whereas 24-hour mode (`15:06`) fit nicely. The stage digits font scaling clamp (`clamp(8.5rem, 40vw, 62vh)`) caused 8 characters (`03:06 PM`) to exceed 100vw.
+- **Leading Zero Removal**: Updated `formatDeviceClock` in [ProjectorDisplay.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/ProjectorDisplay.tsx) and [MobileRemoteView.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/MobileRemoteView.tsx) to drop `padStart(2, '0')` in 12-hour mode. E.g., `3:06 PM` instead of `03:06 PM`.
+- **Dedicated Viewport Scaling & Safe Margins**:
+  - In [index.css](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/index.css), added `.stage-screen-root.is-device-clock .stage-digits-container` with `padding: 0 4vw; overflow: hidden; box-sizing: border-box;`.
+  - Added dedicated styling for 24-hour mode (`.is-clock-digits.is-24h` at `clamp(6.5rem, 30vw, 52vh)`) ensuring massive bold numerals.
+  - Added calibrated scaling for 12-hour mode (`.is-clock-digits.has-period` at `clamp(4.2rem, 18.5vw, 38vh)`).
+  - Aligned `.clock-period-tag` with `font-size: 0.35em; font-weight: 900; line-height: 1; vertical-align: baseline; margin-left: 1.5vw;` so both the digits and the AM/PM tag stay centered with safe margins and never clip on any screen ratio.
+
+### 2. Mobile Remote Custom Tabbed Time Adjuster
+- **Replaced Fixed Quick Nudge Bar**: In [MobileRemoteView.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/MobileRemoteView.tsx), replaced the fixed quick chip strip with a full tabbed adjuster card (`.mobile-adjust-card`).
+- **Tab Header**: Dual-tab toggle:
+  - `[ + ADD TIME ]` (emerald/green active state)
+  - `[ - SUBTRACT TIME ]` (rose/red active state)
+- **Digital Stepper Inputs**:
+  - `HRS` : `MIN` : `SEC` steppers with `[-]` / `[+]` touch-friendly buttons and direct numeric keyboard entry.
+  - Quick increment/decrement preset chips (`+30s`, `+1m`, `+2m`, `+5m`, `+10m` or `-30s`, `-1m`, `-2m`, `-5m`, `-10m`) plus a `Clear` button to reset to `0s`.
+- **Prominent Action Button**:
+  - Automatically calculates and previews the exact target adjustment (`+ ADD 2m 30s TO LIVE` or `- SUBTRACT 2m 30s FROM LIVE`).
+  - Calls `addTimeToLive` or `subtractTimeFromLive` with mobile haptic feedback and toast confirmation.
+  - Automatically disabled when total adjustment duration is 0 or when the timer is idle.
+
+
+## Section 19: Dynamic External Display Typography Auto-Fit & Maximum Screen Fill (Version 1.0.5)
+
+### Dynamic Display Width & Height Measurement
+- **User Request**: "noo the time is now to small, please always calculate the width o f the external display and make it fill accordingly, the 12 hours am/pm clock including the timier too, i want it bigg you get"
+- **Architecture & Implementation**:
+  - In [ProjectorDisplay.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/ProjectorDisplay.tsx), implemented dynamic auto-scaling typography using an offscreen DOM measurement ruler (`rulerRef`) and container `ResizeObserver`.
+  - Continuously measures the exact rendered dimensions of the active stage text (including 12-hour clock with AM/PM tag, 24-hour clock, countdown timers `M:SS`/`H:MM:SS`, overtime count-up, "TIME UP", and "PLEASE CONCLUDE NOW") against the container's physical pixel width and height.
+  - Scales up typography to fill **93% of the external display width** (reserving a 3.5% safe bezel/overscan margin on each side) and up to **74% of the container height** (or **52%** when the UP NEXT drift cue banner is active).
+  - Proportional AM/PM alignment: [index.css](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/index.css) sets `.clock-period-tag` with `font-size: 0.35em; margin-left: 0.28em;` so the period tag scales strictly in proportion with the dynamic digits font size.
+  - Container padding removed from `.stage-digits-container` so the dynamic calculator has 100% of the display canvas to maximize text size.
+  - Auto-adapts instantly to 1080p TVs, 4K displays, 720p projectors, 4:3 ratios, ultrawide monitors, and the desktop controller preview box with 0 clipping and maximum bold visibility.
+
+
+## Section 20: Software Timing Report Log System & 30-Day Auto-Retention (Version 1.0.5)
+
+### Dedicated Timing Reports Log Engine
+- **User Request**: "even the timing report should be saved to in it own file like log file for software, we can have a timing report folder, it will be written as apps write log files, and will be deleted after 30 days"
+- **Architecture & Implementation**:
+  - **Directory**: Created dedicated [timing_reports/](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/timing_reports) folder.
+  - **Daily Log Files**: Each event day creates an append-only software log file (`timing-report-YYYY-MM-DD.log`) and structured JSON data file (`timing-report-YYYY-MM-DD.json`).
+  - **Software Log Record Format**: Appends formatted audit lines for all operations:
+    `[YYYY-MM-DD HH:MM:SS] [EVENT_TYPE] Label: "..." | Planned: MM:SS | Actual: MM:SS | Overtime: MM:SS | Notes: "..."`
+  - **30-Day Automatic Log Retention Cleanup**: On app startup and during log appends, scans `timing_reports/` for log/json files older than 30 days (by date extraction and filesystem modification times) and automatically unlinks/deletes them.
+  - **Session Restoration**: When the application opens or restarts, today's report entries from `timing_reports/timing-report-YYYY-MM-DD.json` are automatically loaded into `state.timingReport` so user history is never lost if closed by mistake.
+  - **Timing Report Modal UI**:
+    - Added **"Reports Folder"** button with `FolderOpen` icon in [TimingReportModal.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/TimingReportModal.tsx), letting users open the `timing_reports/` directory directly on their computer.
+    - Added clear subtitle pill indicating `Saved to timing_reports/ · 30-day retention`.
+  - **IPC & API Handlers**:
+    - [main.cjs](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/electron/main.cjs): Added `save-timing-report-entry`, `get-today-timing-report`, `clear-timing-reports`, `open-timing-reports-folder`.
+    - [preload.cjs](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/electron/preload.cjs): Exposed handlers to frontend.
+    - [vite.config.ts](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/vite.config.ts) & [remoteServer.cjs](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/electron/remoteServer.cjs): Added `/api/timing-reports`, `/api/timing-reports/today`, `/api/timing-reports/clear`, and `/api/timing-reports/open`.
+    - [TimerContext.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/context/TimerContext.tsx): Integrated automated logging into `updateStateAndBroadcast`.
+
+
+## Section 21: Unblack Stage Screen React Hook Order & Crash Fix (Version 1.0.5)
+
+### Diagnosis & Root Cause
+- **Problem**: Clicking "Unblack" caused the projector window to crash and freeze into a dark gray/blank display.
+- **Root Cause**: In [ProjectorDisplay.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/ProjectorDisplay.tsx), an early return `if (state.isBlackout) return (...)` was located at line 64, placed **before** `useLayoutEffect` and `useEffect` (lines 190 and 194).
+- In React, returning early conditionally skips hooks during blackout renders. When unblacking, the component did not return early and proceeded to run the remaining hooks, violating React's fundamental **Rule of Hooks** ("Rendered more hooks than during previous render") and causing an unhandled component unmount crash.
+
+### Resolution
+- Removed the early return before the hooks in [ProjectorDisplay.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/ProjectorDisplay.tsx).
+- All 7 hooks (`useState`, `useRef`, `useEffect` for ticking, `useLayoutEffect` for dynamic scale measurement, and `useEffect` for `ResizeObserver`) are now called unconditionally on every render in identical order.
+- Moved the `state.isBlackout` render branch to the bottom of the component after all hooks have executed.
+- Added `state.isBlackout` to `contentKey` and an early exit inside `measureAndScale()` so transitions from Blackout -> Unblackout trigger an immediate, seamless re-scale and display of the live timer or clock with zero errors.
+
+
+## Section 22: High-Visibility Stage Prompt Scaling for "PLEASE CONCLUDE NOW" (Version 1.0.5)
+
+### Diagnosis & Root Cause
+- **Problem**: "PLEASE CONCLUDE NOW" was rendering too small on stage displays, making it difficult for speakers/presenters to read from a distance.
+- **Root Cause**: The 19-character string `"PLEASE CONCLUDE NOW"` was constrained onto a single horizontal line (`white-space: nowrap`) in both the measuring ruler and the DOM. Because 19 characters side-by-side had to fit within screen width, the dynamic auto-fit engine had to clamp the font size down to ~150px, occupying only ~14% of display height.
+
+### Resolution
+- **Two-Line Natural Layout**:
+  - In [ProjectorDisplay.tsx](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/components/ProjectorDisplay.tsx), structured "PLEASE CONCLUDE NOW" into two stacked lines:
+    - Line 1: `PLEASE` (with subtle letter-spacing for visual balance)
+    - Line 2: `CONCLUDE NOW`
+  - Updated the offscreen measurement ruler to match this 2-line layout.
+- **Dramatic Size Increase**:
+  - Max horizontal line length reduced from 19 characters to 12 characters (`CONCLUDE NOW`).
+  - Font size on 1080p screens jumped from **150px** to **~260px - 280px** (a **+75% increase in font size** and **over 3x larger in total visual area**).
+  - Vertical height increased from ~140px to nearly **500px tall**, commanding the center of the stage screen in bold `#ff0000` red.
+- **CSS Enhancements**:
+  - In [index.css](file:///home/onyekachi-godswill-richard/Desktop/WEB DEV/Web Dev/timer/src/index.css), removed `padding: 0 4vw;` from `.timeup-container` so the prompt utilizes 100% of the display canvas.
+  - Styled `.conclude-line-top` and `.conclude-line-bottom` with tight line-height (`0.92`) and font-weight 950.

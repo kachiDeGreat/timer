@@ -29,6 +29,8 @@ import {
   Printer,
   Download,
   Clock,
+  Plus,
+  Minus,
 } from 'lucide-react';
 
 interface MobileRemoteViewProps {
@@ -44,7 +46,7 @@ function formatDeviceClock(date: Date, is24: boolean): { time: string; period?: 
     let hours = date.getHours();
     const period = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
-    const h = String(hours).padStart(2, '0');
+    const h = String(hours); // No leading zero on 12-hour clock (e.g. 3:06 instead of 03:06)
     const m = String(date.getMinutes()).padStart(2, '0');
     return { time: `${h}:${m}`, period };
   }
@@ -106,6 +108,50 @@ export const MobileRemoteView: React.FC<MobileRemoteViewProps> = ({ onSwitchToDe
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Tabbed Live Time Adjuster ('add' | 'subtract')
+  const [adjustTab, setAdjustTab] = useState<'add' | 'subtract'>('add');
+  const [adjHours, setAdjHours] = useState<number>(0);
+  const [adjMins, setAdjMins] = useState<number>(2);
+  const [adjSecs, setAdjSecs] = useState<number>(0);
+
+  const handleAdjustChip = (h: number, m: number, s: number) => {
+    let total = (adjHours + h) * 3600 + (adjMins + m) * 60 + (adjSecs + s);
+    total = Math.max(0, Math.min(359999, total));
+    setAdjHours(Math.floor(total / 3600));
+    setAdjMins(Math.floor((total % 3600) / 60));
+    setAdjSecs(total % 60);
+  };
+
+  const handleResetAdjust = () => {
+    setAdjHours(0);
+    setAdjMins(0);
+    setAdjSecs(0);
+  };
+
+  const stepHours = (delta: number) => {
+    setAdjHours((prev) => Math.max(0, Math.min(99, prev + delta)));
+  };
+
+  const stepMins = (delta: number) => {
+    setAdjMins((prev) => {
+      const next = prev + delta;
+      if (next < 0) return 0;
+      if (next > 59) return 59;
+      return next;
+    });
+  };
+
+  const stepSecs = (delta: number) => {
+    setAdjSecs((prev) => {
+      const next = prev + delta;
+      if (next < 0) return 0;
+      if (next > 59) return 59;
+      return next;
+    });
+  };
+
+  const totalAdjSeconds = adjHours * 3600 + adjMins * 60 + adjSecs;
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -491,69 +537,213 @@ export const MobileRemoteView: React.FC<MobileRemoteViewProps> = ({ onSwitchToDe
               </div>
             </div>
 
-            {/* 1-Tap Quick Adjust Nudge Chips */}
-            <div className="quick-nudge-section">
-              <span className="nudge-label">QUICK LIVE TIME ADJUST:</span>
-              <div className="nudge-chips-row">
+            {/* Custom Tabbed Live Time Adjuster (+ ADD / - SUBTRACT) */}
+            <div className="mobile-adjust-card">
+              <div className="adjust-tab-header">
                 <button
                   type="button"
-                  className="nudge-chip sub"
-                  onClick={() => {
-                    withActionLock(() => {
-                      subtractTimeFromLive(0, 1, 0);
-                      showToast('-1m from Live Clock');
-                    });
-                  }}
+                  className={`adjust-tab-btn add ${adjustTab === 'add' ? 'active' : ''}`}
+                  onClick={() => setAdjustTab('add')}
                 >
-                  -1m
+                  <Plus size={15} />
+                  <span>ADD TIME</span>
                 </button>
                 <button
                   type="button"
-                  className="nudge-chip sub"
-                  onClick={() => {
-                    withActionLock(() => {
-                      subtractTimeFromLive(0, 0, 30);
-                      showToast('-30s from Live Clock');
-                    });
-                  }}
+                  className={`adjust-tab-btn sub ${adjustTab === 'subtract' ? 'active' : ''}`}
+                  onClick={() => setAdjustTab('subtract')}
                 >
-                  -30s
+                  <Minus size={15} />
+                  <span>SUBTRACT TIME</span>
                 </button>
+              </div>
+
+              <div className="adjust-tab-body">
+                {/* Steppers Row: HRS : MIN : SEC */}
+                <div className="adjust-steppers-row">
+                  {/* Hours */}
+                  <div className="adjust-stepper-box">
+                    <label className="stepper-label">HRS</label>
+                    <div className="stepper-controls">
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepHours(-1)}
+                        disabled={adjHours <= 0}
+                        aria-label="Decrease hours"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        className="stepper-input"
+                        min="0"
+                        max="99"
+                        value={adjHours}
+                        onChange={(e) => setAdjHours(Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
+                      />
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepHours(1)}
+                        disabled={adjHours >= 99}
+                        aria-label="Increase hours"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <span className="stepper-colon">:</span>
+
+                  {/* Minutes */}
+                  <div className="adjust-stepper-box">
+                    <label className="stepper-label">MIN</label>
+                    <div className="stepper-controls">
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepMins(-1)}
+                        disabled={adjMins <= 0}
+                        aria-label="Decrease minutes"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        className="stepper-input"
+                        min="0"
+                        max="59"
+                        value={adjMins}
+                        onChange={(e) => setAdjMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      />
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepMins(1)}
+                        disabled={adjMins >= 59}
+                        aria-label="Increase minutes"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <span className="stepper-colon">:</span>
+
+                  {/* Seconds */}
+                  <div className="adjust-stepper-box">
+                    <label className="stepper-label">SEC</label>
+                    <div className="stepper-controls">
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepSecs(-5)}
+                        disabled={adjSecs <= 0}
+                        aria-label="Decrease seconds"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        className="stepper-input"
+                        min="0"
+                        max="59"
+                        value={adjSecs}
+                        onChange={(e) => setAdjSecs(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                      />
+                      <button
+                        type="button"
+                        className="stepper-btn"
+                        onClick={() => stepSecs(5)}
+                        disabled={adjSecs >= 59}
+                        aria-label="Increase seconds"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Increment Chips */}
+                <div className="adjust-chips-row">
+                  <button
+                    type="button"
+                    className={`adjust-chip ${adjustTab}`}
+                    onClick={() => handleAdjustChip(0, 0, 30)}
+                  >
+                    {adjustTab === 'add' ? '+30s' : '-30s'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`adjust-chip ${adjustTab}`}
+                    onClick={() => handleAdjustChip(0, 1, 0)}
+                  >
+                    {adjustTab === 'add' ? '+1m' : '-1m'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`adjust-chip ${adjustTab}`}
+                    onClick={() => handleAdjustChip(0, 2, 0)}
+                  >
+                    {adjustTab === 'add' ? '+2m' : '-2m'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`adjust-chip ${adjustTab}`}
+                    onClick={() => handleAdjustChip(0, 5, 0)}
+                  >
+                    {adjustTab === 'add' ? '+5m' : '-5m'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`adjust-chip ${adjustTab}`}
+                    onClick={() => handleAdjustChip(0, 10, 0)}
+                  >
+                    {adjustTab === 'add' ? '+10m' : '-10m'}
+                  </button>
+                  <button
+                    type="button"
+                    className="adjust-chip reset"
+                    onClick={handleResetAdjust}
+                    title="Reset adjustment values to 0"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {/* Apply Button */}
                 <button
                   type="button"
-                  className="nudge-chip add"
+                  className={`adjust-apply-btn ${adjustTab}`}
+                  disabled={totalAdjSeconds <= 0}
                   onClick={() => {
+                    if (totalAdjSeconds <= 0) {
+                      showToast('Please enter an amount of time first');
+                      return;
+                    }
                     withActionLock(() => {
-                      addTimeToLive(0, 0, 30);
-                      showToast('+30s to Live Clock');
+                      if (adjustTab === 'add') {
+                        addTimeToLive(adjHours, adjMins, adjSecs);
+                        showToast(`+${adjHours > 0 ? `${adjHours}h ` : ''}${adjMins}m ${adjSecs}s added to Live Clock`);
+                      } else {
+                        subtractTimeFromLive(adjHours, adjMins, adjSecs);
+                        showToast(`-${adjHours > 0 ? `${adjHours}h ` : ''}${adjMins}m ${adjSecs}s subtracted from Live Clock`);
+                      }
                     });
                   }}
                 >
-                  +30s
-                </button>
-                <button
-                  type="button"
-                  className="nudge-chip add"
-                  onClick={() => {
-                    withActionLock(() => {
-                      addTimeToLive(0, 1, 0);
-                      showToast('+1m to Live Clock');
-                    });
-                  }}
-                >
-                  +1m
-                </button>
-                <button
-                  type="button"
-                  className="nudge-chip add"
-                  onClick={() => {
-                    withActionLock(() => {
-                      addTimeToLive(0, 5, 0);
-                      showToast('+5m to Live Clock');
-                    });
-                  }}
-                >
-                  +5m
+                  {adjustTab === 'add' ? (
+                    <>
+                      <Plus size={16} />
+                      <span>ADD {adjHours > 0 ? `${adjHours}h ` : ''}{adjMins}m {adjSecs}s TO LIVE</span>
+                    </>
+                  ) : (
+                    <>
+                      <Minus size={16} />
+                      <span>SUBTRACT {adjHours > 0 ? `${adjHours}h ` : ''}{adjMins}m {adjSecs}s FROM LIVE</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

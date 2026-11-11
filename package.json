@@ -1,7 +1,7 @@
 {
   "name": "stagetimer-pro",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Professional Stage & Studio Countdown Timer with Automated External Projector Output",
   "author": "StageTimer Pro Team <contact@stagetimer.pro>",
   "main": "electron/main.cjs",

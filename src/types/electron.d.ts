@@ -38,6 +38,14 @@ export interface ElectronAPI {
   onRemoteClientsChange?: (callback: (count: number) => void) => () => void;
   getSettings?: () => Promise<any>;
   saveSettings?: (settings: any) => Promise<any>;
+  getQueue?: () => Promise<any>;
+  saveQueue?: (queue: any) => Promise<any>;
+  exportQueueDialog?: (queueData: any) => Promise<{ success?: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  importQueueDialog?: () => Promise<{ success?: boolean; queue?: any[]; filePath?: string; canceled?: boolean; error?: string }>;
+  saveTimingReportEntry?: (entry: any) => Promise<{ success?: boolean; error?: string }>;
+  getTodayTimingReport?: () => Promise<any[]>;
+  clearTimingReports?: () => Promise<{ success?: boolean; error?: string }>;
+  openTimingReportsFolder?: () => Promise<{ success?: boolean; folder?: string; error?: string }>;
 }
 
 

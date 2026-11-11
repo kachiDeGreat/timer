@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { TimerState } from '../types/timer';
 import { resolveStageColor } from '../types/timer';
 import { formatTime, formatNegativeTime, hasValidTimerLabel } from '../utils/time';
@@ -18,11 +18,18 @@ function formatDeviceClock(date: Date, is24: boolean): { time: string; period?: 
     let hours = date.getHours();
     const period = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
-    const h = String(hours).padStart(2, '0');
+    const h = String(hours); // No leading zero on 12-hour clock (e.g. 3:06 instead of 03:06)
     const m = String(date.getMinutes()).padStart(2, '0');
     return { time: `${h}:${m}`, period };
   }
 }
+
+type StageDisplayContent =
+  | { type: 'timeup'; text: 'TIME UP' }
+  | { type: 'conclude'; text: 'PLEASE CONCLUDE NOW' }
+  | { type: 'overtime'; text: string; hasHours: boolean }
+  | { type: 'clock'; timeStr: string; period?: string }
+  | { type: 'countdown'; text: string; hasHours: boolean };
 
 export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
   state,
@@ -31,11 +38,11 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
 }) => {
   const { remainingSeconds, status, colorScheme, finishedAt } = state;
   const [now, setNow] = useState<number>(Date.now());
+  const [dynamicFontSize, setDynamicFontSize] = useState<number | null>(null);
 
-  // Real-time ticking for:
-  // 1. "TIME UP" & overtime sequences when status === 'finished'
-  // 2. "UP NEXT" 5-second alert countdown
-  // 3. Device clock ticking when status === 'idle' and idleDisplayMode === 'clock'
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rulerRef = useRef<HTMLDivElement>(null);
+
   const isClockIdle = status === 'idle' && remainingSeconds === 0 && state.idleDisplayMode === 'clock';
   const isAlerting = Boolean(
     state.upNextAlertUntil &&
@@ -53,24 +60,6 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
 
     return () => clearInterval(interval);
   }, [status, isAlerting, isClockIdle]);
-
-  if (state.isBlackout) {
-    return (
-      <div
-        className={`stage-screen-root is-blackout ${
-          isPreview ? 'is-preview' : 'is-projector-window'
-        }`}
-        onClick={isPreview ? onPreviewClick : undefined}
-      >
-        {isPreview && (
-          <div className="blackout-preview-indicator">
-            <span className="blackout-title">SCREEN BLACKOUT</span>
-            <span className="blackout-sub">TV output is currently blank</span>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   // 5-second prominent UP NEXT stage alert (Only if timer has a valid user-assigned label!)
   const isUpNextActive =
@@ -101,7 +90,7 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
 
     cueBannerNode = (
       <div className="drift-stage-banner cue-active smooth-fade-in">
-        {/* Multi-shade Red Drift Ribbons (News / Canva Drift Effect) */}
+        {/* Multi-shade Red Drift Ribbons */}
         <div className="drift-layer drift-layer-deep" />
         <div className="drift-layer drift-layer-crimson" />
         <div className="drift-layer drift-layer-scarlet" />
@@ -122,116 +111,265 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     );
   }
 
-  // When timer has reached 0:
-  // 0s to 5s: "TIME UP" in red font on black background (5 seconds)
-  // 5s to 10s: "PLEASE CONCLUDE NOW" in red font on black background (5 seconds)
-  // 10s and beyond: Count-up starts from 11 seconds upward in minus (-00:11, -00:12...)
-  // At every 10-second interval (20s, 30s, 40s...), "TIME UP" displays for 2 seconds
+  // Determine active display content
+  let content: StageDisplayContent;
   if (status === 'finished') {
     const finishBase = finishedAt || state.lastUpdated || now;
     const elapsedSecs = Math.max(0, Math.floor((now - finishBase) / 1000));
 
-    let finishedContent: React.ReactNode;
-
     if (elapsedSecs < 5) {
-      finishedContent = (
-        <div className="timeup-container">
-          <div className="timeup-text">TIME UP</div>
-        </div>
-      );
+      content = { type: 'timeup', text: 'TIME UP' };
     } else if (elapsedSecs < 10) {
-      finishedContent = (
-        <div className="timeup-container">
-          <div className="conclude-text">PLEASE CONCLUDE NOW</div>
-        </div>
-      );
+      content = { type: 'conclude', text: 'PLEASE CONCLUDE NOW' };
     } else {
-      // Overtime count-up starts from 11 seconds upward
       const currentOvertimeSecs = elapsedSecs + 1;
       const isIntervalTimeUp =
         currentOvertimeSecs >= 20 &&
         (currentOvertimeSecs % 10 === 0 || currentOvertimeSecs % 10 === 1);
 
       if (isIntervalTimeUp) {
-        finishedContent = (
-          <div className="timeup-container">
-            <div className="timeup-text">TIME UP</div>
-          </div>
-        );
+        content = { type: 'timeup', text: 'TIME UP' };
       } else {
         const { text: formattedNegative, hasHours } = formatNegativeTime(currentOvertimeSecs);
-        finishedContent = (
-          <div className="stage-digits-container">
-            <div className={`stage-digits is-negative ${hasHours ? 'has-hours' : ''}`}>
-              {formattedNegative}
-            </div>
-          </div>
-        );
+        content = { type: 'overtime', text: formattedNegative, hasHours };
       }
     }
-
-    return (
-      <div
-        className={`stage-screen-root status-finished ${
-          isPreview ? 'is-preview' : 'is-projector-window'
-        }`}
-        onClick={isPreview ? onPreviewClick : undefined}
-        title={isPreview ? 'Click to toggle timer' : undefined}
-      >
-        {finishedContent}
-        {cueBannerNode}
-      </div>
+  } else if (isClockIdle) {
+    const { time: clockTimeStr, period: clockPeriod } = formatDeviceClock(
+      new Date(now),
+      Boolean(state.clockFormat24)
     );
+    content = { type: 'clock', timeStr: clockTimeStr, period: clockPeriod };
+  } else {
+    const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
+    content = { type: 'countdown', text: formattedTime, hasHours };
   }
 
   // Resolve active digit color (supports all presets + custom hex codes)
   const resolvedDigitColor = resolveStageColor(colorScheme);
 
-  // IDLE CLOCK MODE: If idle at 00:00 and user chose "Device Clock", display the live device local clock!
-  if (isClockIdle) {
-    const { time: clockTimeStr, period: clockPeriod } = formatDeviceClock(
-      new Date(now),
-      Boolean(state.clockFormat24)
-    );
-    return (
-      <div
-        className={`stage-screen-root is-device-clock ${
-          isPreview ? 'is-preview' : 'is-projector-window'
-        }`}
-        onClick={isPreview ? onPreviewClick : undefined}
-        title={isPreview ? 'Device Clock (Current Time)' : undefined}
-      >
-        <div className="stage-digits-container">
-          <div className="stage-digits is-clock-digits" style={{ color: resolvedDigitColor }}>
-            <span className="clock-digits-time">{clockTimeStr}</span>
-            {clockPeriod && <span className="clock-period-tag">{clockPeriod}</span>}
-          </div>
+  // Measure and scale typography to fill external display width and height to maximum safe bounds
+  const measureAndScale = () => {
+    if (state.isBlackout) return;
+    const container = containerRef.current;
+    const ruler = rulerRef.current;
+    if (!container || !ruler) return;
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    if (containerWidth <= 0 || containerHeight <= 0) return;
+
+    const rulerRect = ruler.getBoundingClientRect();
+    const rulerWidth = rulerRect.width || ruler.offsetWidth;
+    const rulerHeight = rulerRect.height || ruler.offsetHeight;
+    if (rulerWidth <= 0 || rulerHeight <= 0) return;
+
+    // Fill up to 93% of display width (leaves 3.5% safe bezel margin on each side)
+    const fillWidthFactor = 0.94;
+    // Fill up to 74% of display height (or 52% when UP NEXT cue banner is showing, 80% for conclude prompt)
+    const fillHeightFactor = isUpNextActive ? 0.52 : (content.type === 'conclude' ? 0.80 : 0.74);
+
+    const availableWidth = containerWidth * fillWidthFactor;
+    const availableHeight = containerHeight * fillHeightFactor;
+
+    const scaleW = availableWidth / rulerWidth;
+    const scaleH = availableHeight / rulerHeight;
+    const optimalScale = Math.min(scaleW, scaleH);
+    const calculatedPx = Math.floor(100 * optimalScale);
+
+    if (calculatedPx > 8) {
+      setDynamicFontSize((prev) => {
+        if (prev !== null && Math.abs(prev - calculatedPx) <= 1) return prev;
+        return calculatedPx;
+      });
+    }
+  };
+
+  const contentKey = `${state.isBlackout}_${content.type}_${'timeStr' in content ? content.timeStr + (content.period || '') : content.text}_${isUpNextActive}`;
+
+  useLayoutEffect(() => {
+    measureAndScale();
+  }, [contentKey, isUpNextActive, state.isBlackout]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    measureAndScale();
+
+    const ro = new ResizeObserver(() => {
+      measureAndScale();
+    });
+    ro.observe(container);
+
+    window.addEventListener('resize', measureAndScale);
+
+    if (typeof document !== 'undefined' && document.fonts) {
+      document.fonts.ready.then(() => {
+        measureAndScale();
+      });
+    }
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureAndScale);
+    };
+  }, [isUpNextActive]);
+
+  const rulerStyle: React.CSSProperties = {
+    position: 'absolute',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+    top: -9999,
+    left: -9999,
+    fontSize: '100px',
+    lineHeight: content.type === 'clock' ? 1 : 0.9,
+    fontFamily: 'var(--font-family)',
+    fontWeight: 950,
+    letterSpacing: content.type === 'conclude' ? '0.02em' : content.type === 'clock' ? '-0.03em' : '-0.04em',
+    fontVariantNumeric: 'tabular-nums',
+    display: 'inline-flex',
+    alignItems: 'baseline',
+  };
+
+  // Render the active stage content
+  let mainVisualNode: React.ReactNode;
+  if (content.type === 'timeup') {
+    mainVisualNode = (
+      <div className="timeup-container">
+        <div
+          className="timeup-text"
+          style={{ fontSize: dynamicFontSize ? `${dynamicFontSize}px` : undefined }}
+        >
+          {content.text}
         </div>
-        {cueBannerNode}
+      </div>
+    );
+  } else if (content.type === 'conclude') {
+    mainVisualNode = (
+      <div className="timeup-container">
+        <div
+          className="conclude-text"
+          style={{ fontSize: dynamicFontSize ? `${dynamicFontSize}px` : undefined }}
+        >
+          <span className="conclude-line-top">PLEASE</span>
+          <span className="conclude-line-bottom">CONCLUDE NOW</span>
+        </div>
+      </div>
+    );
+  } else if (content.type === 'overtime') {
+    mainVisualNode = (
+      <div className="stage-digits-container">
+        <div
+          className={`stage-digits is-negative ${content.hasHours ? 'has-hours' : ''}`}
+          style={{
+            fontSize: dynamicFontSize ? `${dynamicFontSize}px` : undefined,
+          }}
+        >
+          {content.text}
+        </div>
+      </div>
+    );
+  } else if (content.type === 'clock') {
+    mainVisualNode = (
+      <div className="stage-digits-container">
+        <div
+          className={`stage-digits is-clock-digits ${content.period ? 'has-period' : 'is-24h'}`}
+          style={{
+            fontSize: dynamicFontSize ? `${dynamicFontSize}px` : undefined,
+            color: resolvedDigitColor,
+          }}
+        >
+          <span className="clock-digits-time">{content.timeStr}</span>
+          {content.period && <span className="clock-period-tag">{content.period}</span>}
+        </div>
+      </div>
+    );
+  } else {
+    mainVisualNode = (
+      <div className="stage-digits-container">
+        <div
+          className={`stage-digits ${content.hasHours ? 'has-hours' : ''}`}
+          style={{
+            fontSize: dynamicFontSize ? `${dynamicFontSize}px` : undefined,
+            color: resolvedDigitColor,
+          }}
+        >
+          {content.text}
+        </div>
       </div>
     );
   }
 
-  // Under 60 mins -> MM:SS; 60 mins and above -> HH:MM:SS
-  const { text: formattedTime, hasHours } = formatTime(remainingSeconds);
+  const rootClassNames = [
+    'stage-screen-root',
+    status === 'finished' ? 'status-finished' : '',
+    content.type === 'clock' ? 'is-device-clock' : '',
+    isPreview ? 'is-preview' : 'is-projector-window',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (state.isBlackout) {
+    return (
+      <div
+        ref={containerRef}
+        className={`stage-screen-root is-blackout ${
+          isPreview ? 'is-preview' : 'is-projector-window'
+        }`}
+        onClick={isPreview ? onPreviewClick : undefined}
+      >
+        {isPreview && (
+          <div className="blackout-preview-indicator">
+            <span className="blackout-title">SCREEN BLACKOUT</span>
+            <span className="blackout-sub">TV output is currently blank</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`stage-screen-root ${
-        isPreview ? 'is-preview' : 'is-projector-window'
-      }`}
+      ref={containerRef}
+      className={rootClassNames}
       onClick={isPreview ? onPreviewClick : undefined}
-      title={isPreview ? 'Click to toggle timer' : undefined}
+      title={isPreview ? (content.type === 'clock' ? 'Device Clock' : 'Click to toggle timer') : undefined}
     >
-      <div className="stage-digits-container">
-        <div
-          className={`stage-digits ${hasHours ? 'has-hours' : ''}`}
-          style={{ color: resolvedDigitColor }}
-        >
-          {formattedTime}
-        </div>
-      </div>
+      {mainVisualNode}
       {cueBannerNode}
+
+      {/* Hidden DOM measurement ruler for dynamic external display fill calculation */}
+      <div ref={rulerRef} style={rulerStyle} aria-hidden="true">
+        {content.type === 'clock' ? (
+          <>
+            <span className="clock-digits-time">{content.timeStr}</span>
+            {content.period && (
+              <span
+                className="clock-period-tag"
+                style={{
+                  fontSize: '0.35em',
+                  fontWeight: 900,
+                  marginLeft: '0.28em',
+                  textTransform: 'uppercase',
+                  lineHeight: 1,
+                  verticalAlign: 'baseline',
+                }}
+              >
+                {content.period}
+              </span>
+            )}
+          </>
+        ) : content.type === 'conclude' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 0.92, textAlign: 'center' }}>
+            <span style={{ whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>PLEASE</span>
+            <span style={{ whiteSpace: 'nowrap', letterSpacing: '-0.02em' }}>CONCLUDE NOW</span>
+          </div>
+        ) : (
+          <span>{content.text}</span>
+        )}
+      </div>
     </div>
   );
 };

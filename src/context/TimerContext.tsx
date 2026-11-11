@@ -40,6 +40,7 @@ export interface TimerContextValue {
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   updateQueueItemTitle: (id: string, title: string) => void;
   clearQueue: () => void;
+  replaceQueue: (queue: QueuedTimerItem[]) => void;
   playQueueItem: (id: string) => void;
   loadQueueItemToStage: (id: string) => void;
   playNextInQueue: () => void;
@@ -102,21 +103,36 @@ function persistSettings(partialSettings: Partial<TimerSettings>) {
   }
 }
 
-// Helper to persist timing cues / queue into settings.json and localStorage
+// Helper to persist timing cues / queue into queue.json and localStorage
 function persistQueue(queue: QueuedTimerItem[]) {
   try {
     localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(queue));
   } catch {}
 
-  fetch('/api/settings', {
+  fetch('/api/queue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timerQueue: queue }),
+    body: JSON.stringify(queue),
   }).catch(() => {});
 
-  if (window.electronAPI?.saveSettings) {
-    window.electronAPI.saveSettings({ timerQueue: queue }).catch(() => {});
+  if (window.electronAPI?.saveQueue) {
+    window.electronAPI.saveQueue(queue).catch(() => {});
   }
+}
+
+// Helper to log timing report entries to timing_reports/ daily log and json files (30-day retention)
+function logTimingReportEntry(entry: TimingReportEntry) {
+  if (!entry || !entry.eventType) return;
+
+  if (window.electronAPI?.saveTimingReportEntry) {
+    window.electronAPI.saveTimingReportEntry(entry).catch(() => {});
+  }
+
+  fetch('/api/timing-reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).catch(() => {});
 }
 
 function loadInitialState(): TimerState {
@@ -303,15 +319,25 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     (updater: (prev: TimerState) => TimerState) => {
       setState((prev) => {
         const updated = updater(prev);
+        // Automatically persist any new timing report events to timing_reports/
+        if (
+          !isRemoteClient &&
+          updated.timingReport &&
+          updated.timingReport.length > 0 &&
+          (!prev.timingReport || prev.timingReport[0]?.id !== updated.timingReport[0]?.id)
+        ) {
+          logTimingReportEntry(updated.timingReport[0]);
+        }
         broadcastState(updated);
         return updated;
       });
     },
-    [broadcastState]
+    [broadcastState, isRemoteClient]
   );
 
-  // Load settings from settings.json via /api/settings or Electron API
+  // Load settings from settings.json and active timing queue from queue.json
   useEffect(() => {
+    // 1. Super-Settings (settings.json)
     if (window.electronAPI?.getSettings) {
       window.electronAPI
         .getSettings()
@@ -333,13 +359,9 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   ? saved.upNextTriggerSeconds
                   : prev.upNextTriggerSeconds,
               colorScheme: saved.colorScheme || prev.colorScheme,
-              timerQueue: Array.isArray(saved.timerQueue) ? saved.timerQueue : prev.timerQueue,
             }));
             try {
               localStorage.setItem('STAGE_TIMER_SETTINGS', JSON.stringify(saved));
-              if (Array.isArray(saved.timerQueue)) {
-                localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(saved.timerQueue));
-              }
             } catch {}
           }
         })
@@ -365,14 +387,58 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   ? saved.upNextTriggerSeconds
                   : prev.upNextTriggerSeconds,
               colorScheme: saved.colorScheme || prev.colorScheme,
-              timerQueue: Array.isArray(saved.timerQueue) ? saved.timerQueue : prev.timerQueue,
             }));
             try {
               localStorage.setItem('STAGE_TIMER_SETTINGS', JSON.stringify(saved));
-              if (Array.isArray(saved.timerQueue)) {
-                localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(saved.timerQueue));
-              }
             } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 2. Active Timing Queue (queue.json)
+    if (window.electronAPI?.getQueue) {
+      window.electronAPI
+        .getQueue()
+        .then((savedQueue) => {
+          if (Array.isArray(savedQueue) && savedQueue.length > 0) {
+            setState((prev) => ({ ...prev, timerQueue: savedQueue }));
+            try {
+              localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(savedQueue));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    } else {
+      fetch('/api/queue')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((savedQueue) => {
+          if (Array.isArray(savedQueue) && savedQueue.length > 0) {
+            setState((prev) => ({ ...prev, timerQueue: savedQueue }));
+            try {
+              localStorage.setItem('STAGE_TIMER_QUEUE', JSON.stringify(savedQueue));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 3. Today's Timing Report Audit Log (from timing_reports/ folder)
+    if (window.electronAPI?.getTodayTimingReport) {
+      window.electronAPI
+        .getTodayTimingReport()
+        .then((savedReport) => {
+          if (Array.isArray(savedReport) && savedReport.length > 0) {
+            setState((prev) => ({ ...prev, timingReport: savedReport }));
+          }
+        })
+        .catch(() => {});
+    } else {
+      fetch('/api/timing-reports/today')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((savedReport) => {
+          if (Array.isArray(savedReport) && savedReport.length > 0) {
+            setState((prev) => ({ ...prev, timingReport: savedReport }));
           }
         })
         .catch(() => {});
@@ -1224,6 +1290,21 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }));
   }, [isRemoteClient, sendActionToHost, updateStateAndBroadcast]);
 
+  const replaceQueue = useCallback(
+    (newQueue: QueuedTimerItem[]) => {
+      if (!Array.isArray(newQueue)) return;
+      persistQueue(newQueue);
+      updateStateAndBroadcast((prev) => ({
+        ...prev,
+        timerQueue: newQueue,
+        activeQueueItemId: null,
+        lastUpdated: Date.now(),
+        lastAction: `Loaded ${newQueue.length} timers into queue`,
+      }));
+    },
+    [updateStateAndBroadcast]
+  );
+
   const playQueueItem = useCallback(
     (id: string) => {
       if (isRemoteClient) {
@@ -1404,6 +1485,11 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       sendActionToHost({ type: 'CLEAR_TIMING_REPORT' });
       return;
     }
+    if (window.electronAPI?.clearTimingReports) {
+      window.electronAPI.clearTimingReports().catch(() => {});
+    }
+    fetch('/api/timing-reports/clear', { method: 'POST' }).catch(() => {});
+
     updateStateAndBroadcast((prev) => ({
       ...prev,
       timingReport: [],
@@ -1956,6 +2042,7 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     reorderQueue,
     updateQueueItemTitle,
     clearQueue,
+    replaceQueue,
     playQueueItem,
     loadQueueItemToStage,
     playNextInQueue,

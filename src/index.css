@@ -808,6 +808,49 @@ html, body, #root {
   color: #fbbf24;
 }
 
+.queue-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.queue-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.queue-tool-btn.save-btn {
+  background-color: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+}
+
+.queue-tool-btn.save-btn:hover {
+  background-color: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
+.queue-tool-btn.load-btn {
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--md-border);
+  color: #cbd5e1;
+}
+
+.queue-tool-btn.load-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: #94a3b8;
+  color: #ffffff;
+}
+
 .queue-clear-btn {
   display: inline-flex;
   align-items: center;
@@ -1512,24 +1555,25 @@ html, body, #root {
   justify-content: center;
   width: 100%;
   height: 100%;
-  padding: 0 2vw;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-/* Massive, Bold Standard MM:SS Digits (A Lot Bigger for TV Display) */
+/* Massive, Bold Standard M:SS / MM:SS Digits (Maximized for TV & Small Displays) */
 .stage-digits {
   font-family: var(--font-family);
-  font-size: clamp(8rem, 36vw, 55vh);
+  font-size: clamp(8.5rem, 40vw, 62vh);
   font-weight: 950;
-  line-height: 0.92;
+  line-height: 0.90;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
   text-align: center;
   text-shadow: none !important;
 }
 
-/* Scaling for HH:MM:SS format when running into hours */
+/* Scaling for H:MM:SS format when running into hours */
 .stage-digits.has-hours {
-  font-size: clamp(5.5rem, 25vw, 40vh);
+  font-size: clamp(6.2rem, 28vw, 44vh);
 }
 
 /* Color schemes: White vs Blue */
@@ -1543,11 +1587,11 @@ html, body, #root {
 
 /* In preview box, scale digits properly */
 .is-preview .stage-digits {
-  font-size: clamp(2.5rem, 9vw, 4.5rem);
+  font-size: clamp(2.8rem, 10vw, 5.2rem);
 }
 
 .is-preview .stage-digits.has-hours {
-  font-size: clamp(1.8rem, 6.5vw, 3.2rem);
+  font-size: clamp(2rem, 7.2vw, 3.6rem);
 }
 
 /* =========================================================
@@ -1567,7 +1611,8 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   background-color: #000000;
-  padding: 0 4vw;
+  padding: 0;
+  box-sizing: border-box;
   box-shadow: none !important;
 }
 
@@ -1590,18 +1635,35 @@ html, body, #root {
 /* Phase 2: Static Big Text "PLEASE CONCLUDE NOW" (Red font on Black background for 5s) */
 .conclude-text {
   font-family: var(--font-family);
-  font-size: clamp(3.5rem, 15vw, 24vh);
+  font-size: clamp(6.5rem, 20vw, 29vh);
   font-weight: 950;
   color: #ff0000 !important;
-  line-height: 1.1;
-  letter-spacing: 0.02em;
+  line-height: 0.92;
   text-align: center;
   text-transform: uppercase;
   text-shadow: none !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.conclude-line-top {
+  display: block;
+  white-space: nowrap;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
+}
+
+.conclude-line-bottom {
+  display: block;
+  white-space: nowrap;
+  letter-spacing: -0.02em;
 }
 
 .is-preview .conclude-text {
-  font-size: clamp(1.2rem, 4vw, 2rem);
+  font-size: clamp(1.4rem, 4.5vw, 2.4rem);
 }
 
 /* Phase 3: Negative Count-Up in Minus (Red font on Black background) */
@@ -1609,25 +1671,25 @@ html, body, #root {
 .color-white .stage-digits.is-negative,
 .color-blue .stage-digits.is-negative {
   color: #ff0000 !important;
-  font-size: clamp(7rem, 30vw, 50vh);
+  font-size: clamp(7.5rem, 34vw, 55vh);
 }
 
 .stage-digits.is-negative.has-hours,
 .color-white .stage-digits.is-negative.has-hours,
 .color-blue .stage-digits.is-negative.has-hours {
-  font-size: clamp(4.8rem, 21vw, 36vh);
+  font-size: clamp(5.4rem, 24vw, 40vh);
 }
 
 .is-preview .stage-digits.is-negative,
 .is-preview .color-white .stage-digits.is-negative,
 .is-preview .color-blue .stage-digits.is-negative {
-  font-size: clamp(2.2rem, 7.5vw, 3.8rem);
+  font-size: clamp(2.4rem, 8.5vw, 4.2rem);
 }
 
 .is-preview .stage-digits.is-negative.has-hours,
 .is-preview .color-white .stage-digits.is-negative.has-hours,
 .is-preview .color-blue .stage-digits.is-negative.has-hours {
-  font-size: clamp(1.6rem, 5.5vw, 2.8rem);
+  font-size: clamp(1.8rem, 6vw, 3.2rem);
 }
 
 /* =========================================================
@@ -3588,28 +3650,68 @@ html, body, #root {
 }
 
 /* =========================================================
-   STAGE DEVICE CLOCK DISPLAY
+   STAGE DEVICE CLOCK DISPLAY (12H / 24H SAFE SCALING)
    ========================================================= */
-.stage-screen-root.is-device-clock .stage-digits.is-clock-digits {
+.stage-screen-root.is-device-clock .stage-digits-container {
   display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.stage-screen-root.is-device-clock .stage-digits.is-clock-digits {
+  display: inline-flex;
   align-items: baseline;
   justify-content: center;
-  gap: 1vw;
+  width: auto;
+  font-family: var(--font-family);
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Fallback clamps before dynamic DOM measurement */
+.stage-screen-root.is-device-clock .stage-digits.is-clock-digits.is-24h {
+  font-size: clamp(6.5rem, 30vw, 52vh);
+}
+
+.stage-screen-root.is-device-clock .stage-digits.is-clock-digits.has-period {
+  font-size: clamp(5.5rem, 24vw, 44vh);
+}
+
+.is-preview .stage-digits.is-clock-digits {
+  font-size: clamp(1.8rem, 6.5vw, 3.2rem);
+}
+
+.is-preview .stage-digits.is-clock-digits.has-period {
+  font-size: clamp(1.5rem, 5.2vw, 2.7rem);
 }
 
 .clock-digits-time {
-  font-family: var(--font-mono);
+  display: inline-block;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .clock-period-tag {
+  display: inline-block;
   font-size: 0.35em;
-  font-weight: 700;
+  font-weight: 900;
   color: inherit;
-  opacity: 0.75;
-  letter-spacing: 0.05em;
-  margin-left: 0.5vw;
+  opacity: 0.88;
+  letter-spacing: 0.04em;
+  margin-left: 0.28em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1;
+  vertical-align: baseline;
 }
 
 /* =========================================================
@@ -3730,6 +3832,29 @@ html, body, #root {
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
+}
+
+.report-btn.btn-open-folder {
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.report-btn.btn-open-folder:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
+.report-retention-pill {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.report-retention-pill code {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
 }
 
 .report-btn.btn-print {
@@ -4931,52 +5056,231 @@ html, body, #root {
   background: rgba(56, 189, 248, 0.08);
 }
 
-/* Quick Nudge Bar */
-.quick-nudge-section {
+/* Mobile Remote: Custom Tabbed Live Time Adjuster (+ ADD / - SUBTRACT) */
+.mobile-adjust-card {
   background: #121215;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.adjust-tab-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.adjust-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.7rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  background: transparent;
+  color: #71717a;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.adjust-tab-btn.add.active {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border-bottom: 2px solid #10b981;
+}
+
+.adjust-tab-btn.sub.active {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom: 2px solid #ef4444;
+}
+
+.adjust-tab-body {
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.65rem;
 }
-.nudge-label {
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #71717a;
-  text-transform: uppercase;
-}
-.nudge-chips-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+
+.adjust-steppers-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.4rem;
 }
-.nudge-chip {
-  padding: 0.55rem 0.2rem;
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 0.88rem;
+
+.adjust-stepper-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.stepper-label {
+  font-size: 0.65rem;
   font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.stepper-controls {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stepper-btn {
+  width: 32px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
   border: none;
+  color: #e2e8f0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stepper-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.stepper-input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 800;
+  text-align: center;
+  padding: 0;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-colon {
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: #64748b;
+  margin-top: 1rem;
+}
+
+.adjust-chips-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.35rem;
+}
+
+.adjust-chip {
+  padding: 0.45rem 0.1rem;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 800;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
   cursor: pointer;
   text-align: center;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s ease;
+  transition: all 0.1s ease;
 }
-.nudge-chip:active {
-  transform: scale(0.93);
+
+.adjust-chip:active {
+  transform: scale(0.94);
 }
-.nudge-chip.sub {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-.nudge-chip.add {
-  background: rgba(16, 185, 129, 0.15);
+
+.adjust-chip.add {
   color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.adjust-chip.sub {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.adjust-chip.reset {
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.adjust-apply-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.85rem 0.5rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.adjust-apply-btn.add {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
+}
+
+.adjust-apply-btn.add:hover:not(:disabled) {
+  background: #059669;
+}
+
+.adjust-apply-btn.sub {
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+}
+
+.adjust-apply-btn.sub:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.adjust-apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* Up Next Compact Card */

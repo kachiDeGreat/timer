@@ -13,17 +13,19 @@ export function formatTime(seconds: number): {
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
 
-  // Under 60 minutes: strictly MM:SS (e.g. 10:00, 45:00)
-  // 60 minutes and above: HH:MM:SS (e.g. 01:19:00 for 79 mins, 01:30:00)
+  // Space-optimized digital formatting:
+  // - 60 minutes and above (1+ hours): H:MM:SS (no leading zero on hours: 1:19:00, 2:05:30)
+  // - Under 60 minutes: M:SS (no leading zero on single-digit minutes: 9:30, 5:00, 0:00)
+  // This removes unnecessary leading zeros so digits can render significantly bolder and bigger on all screens.
   if (hrs > 0) {
     return {
-      text: `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+      text: `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
       hasHours: true,
     };
   }
 
   return {
-    text: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+    text: `${mins}:${String(secs).padStart(2, '0')}`,
     hasHours: false,
   };
 }

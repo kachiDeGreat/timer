@@ -15,6 +15,8 @@ import {
   Check,
   RotateCcw,
   Megaphone,
+  Save,
+  FolderOpen,
 } from "lucide-react";
 
 export const CountdownQueue: React.FC = () => {
@@ -26,6 +28,7 @@ export const CountdownQueue: React.FC = () => {
     reorderQueue,
     updateQueueItemTitle,
     clearQueue,
+    replaceQueue,
     addToQueue,
     pause,
     resume,
@@ -78,6 +81,97 @@ export const CountdownQueue: React.FC = () => {
     { label: "+1h", h: 1, m: 0, s: 0 },
   ];
 
+  // Manual Save Queue: opens desktop file manager or browser save dialog
+  const handleSaveQueue = async () => {
+    if (queue.length === 0) return;
+
+    // 1. Electron Desktop Native Save Dialog
+    if (window.electronAPI?.exportQueueDialog) {
+      try {
+        const res = await window.electronAPI.exportQueueDialog(queue);
+        if (res?.success) {
+          console.log(`Queue saved to: ${res.filePath}`);
+        }
+      } catch (err) {
+        console.warn('Failed to export queue via Electron:', err);
+      }
+      return;
+    }
+
+    // 2. Modern Web File System Access API (Native desktop file picker)
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: 'stagetimer-queue.json',
+          types: [
+            {
+              description: 'StageTimer Queue Playlist (*.json)',
+              accept: { 'application/json': ['.json'] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(queue, null, 2));
+        await writable.close();
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('showSaveFilePicker error, falling back:', err);
+      }
+    }
+
+    // 3. Fallback browser download trigger
+    const blob = new Blob([JSON.stringify(queue, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stagetimer-queue.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Manual Load Queue: opens desktop file manager or browser file picker
+  const handleLoadQueue = async () => {
+    // 1. Electron Native Open Dialog
+    if (window.electronAPI?.importQueueDialog) {
+      try {
+        const res = await window.electronAPI.importQueueDialog();
+        if (res?.success && Array.isArray(res.queue)) {
+          replaceQueue(res.queue);
+        }
+      } catch (err) {
+        console.warn('Failed to import queue via Electron:', err);
+      }
+      return;
+    }
+
+    // 2. Web Browser File Input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = (e: any) => {
+      const file = e.target?.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const parsed = JSON.parse(event.target?.result as string);
+            const list = Array.isArray(parsed) ? parsed : (parsed.timerQueue || []);
+            if (Array.isArray(list)) {
+              replaceQueue(list);
+            }
+          } catch (err) {
+            alert('Invalid queue JSON file');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
   return (
     <div className="material-card countdown-queue-card">
       {/* Header */}
@@ -90,17 +184,41 @@ export const CountdownQueue: React.FC = () => {
           </span>
         </div>
 
-        {queue.length > 0 && (
+        <div className="queue-header-actions">
+          {queue.length > 0 && (
+            <button
+              type="button"
+              className="queue-tool-btn save-btn"
+              onClick={handleSaveQueue}
+              title="Save Queue file to your computer (Choose folder in file manager)"
+            >
+              <Save size={13} />
+              <span>Save Queue</span>
+            </button>
+          )}
+
           <button
             type="button"
-            className="queue-clear-btn"
-            onClick={clearQueue}
-            title="Clear all queued timers"
+            className="queue-tool-btn load-btn"
+            onClick={handleLoadQueue}
+            title="Open / Import queue playlist from file"
           >
-            <RotateCcw size={12} />
-            <span>Clear Queue</span>
+            <FolderOpen size={13} />
+            <span>Load Queue</span>
           </button>
-        )}
+
+          {queue.length > 0 && (
+            <button
+              type="button"
+              className="queue-clear-btn"
+              onClick={clearQueue}
+              title="Clear all queued timers"
+            >
+              <RotateCcw size={12} />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Dynamic Queue List (Unlimited Items) */}

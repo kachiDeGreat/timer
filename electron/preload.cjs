@@ -53,5 +53,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getQueue: () => ipcRenderer.invoke('get-queue'),
+  saveQueue: (queue) => ipcRenderer.invoke('save-queue', queue),
+  exportQueueDialog: (queueData) => ipcRenderer.invoke('export-queue-dialog', queueData),
+  importQueueDialog: () => ipcRenderer.invoke('import-queue-dialog'),
+  saveTimingReportEntry: (entry) => ipcRenderer.invoke('save-timing-report-entry', entry),
+  getTodayTimingReport: () => ipcRenderer.invoke('get-today-timing-report'),
+  clearTimingReports: () => ipcRenderer.invoke('clear-timing-reports'),
+  openTimingReportsFolder: () => ipcRenderer.invoke('open-timing-reports-folder'),
 });
 

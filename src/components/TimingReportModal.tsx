@@ -8,6 +8,7 @@ import {
   X,
   FileText,
   Clock,
+  FolderOpen,
 } from 'lucide-react';
 
 interface TimingReportModalProps {
@@ -71,6 +72,14 @@ export const TimingReportModal: React.FC<TimingReportModalProps> = ({ isOpen, on
     }
   };
 
+  const handleOpenFolder = () => {
+    if (window.electronAPI?.openTimingReportsFolder) {
+      window.electronAPI.openTimingReportsFolder();
+    } else {
+      fetch('/api/timing-reports/open', { method: 'POST' }).catch(() => {});
+    }
+  };
+
   const getEventBadgeClass = (type: string) => {
     switch (type) {
       case 'START':
@@ -126,11 +135,23 @@ export const TimingReportModal: React.FC<TimingReportModalProps> = ({ isOpen, on
               <div className="report-date-row">
                 <span>{eventDateStr}</span>
                 <span className="report-dot-sep">·</span>
-                <span>Active Service / Event Run Sheet</span>
+                <span>Active Service Run Sheet</span>
+                <span className="report-dot-sep">·</span>
+                <span className="report-retention-pill">Saved to <code>timing_reports/</code> (30-day retention)</span>
               </div>
             </div>
 
             <div className="report-header-actions no-print">
+              <button
+                type="button"
+                className="report-btn btn-open-folder"
+                onClick={handleOpenFolder}
+                title="Open timing_reports log folder on your computer"
+              >
+                <FolderOpen size={15} />
+                <span>Reports Folder</span>
+              </button>
+
               <button
                 type="button"
                 className="report-btn btn-print"

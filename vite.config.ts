@@ -80,7 +80,6 @@ function remoteSyncPlugin(): Plugin {
                 autoAdvanceMode: 'manual',
                 upNextTriggerSeconds: 60,
                 colorScheme: 'white',
-                timerQueue: [],
               })
             );
             return;
@@ -99,7 +98,6 @@ function remoteSyncPlugin(): Plugin {
                   autoAdvanceMode: 'manual',
                   upNextTriggerSeconds: 60,
                   colorScheme: 'white',
-                  timerQueue: [],
                 };
                 if (fs.existsSync(settingsPath)) {
                   try {
@@ -107,6 +105,7 @@ function remoteSyncPlugin(): Plugin {
                   } catch {}
                 }
                 const updated = { ...current, ...parsed };
+                delete updated.timerQueue;
                 fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify({ success: true, settings: updated }));
@@ -117,6 +116,190 @@ function remoteSyncPlugin(): Plugin {
             });
             return;
           }
+        }
+
+        if (req.url === '/api/queue') {
+          const queuePath = path.resolve(process.cwd(), 'queue.json');
+          if (req.method === 'GET') {
+            try {
+              if (fs.existsSync(queuePath)) {
+                const data = fs.readFileSync(queuePath, 'utf8');
+                res.setHeader('Content-Type', 'application/json');
+                res.end(data);
+                return;
+              }
+            } catch (err) {
+              console.warn('[vite] Failed to read queue.json:', err);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify([]));
+            return;
+          }
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', (chunk) => {
+              body += chunk;
+            });
+            req.on('end', () => {
+              try {
+                const parsed = JSON.parse(body);
+                const list = Array.isArray(parsed) ? parsed : (parsed.timerQueue || []);
+                fs.writeFileSync(queuePath, JSON.stringify(list, null, 2), 'utf8');
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: true, queue: list }));
+              } catch (err: any) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: err.message }));
+              }
+            });
+            return;
+          }
+        }
+
+        // =========================================================
+        // TIMING REPORTS LOG API (30-DAY RETENTION)
+        // =========================================================
+        const reportsDir = path.resolve(process.cwd(), 'timing_reports');
+
+        const ensureReportsDir = () => {
+          if (!fs.existsSync(reportsDir)) {
+            fs.mkdirSync(reportsDir, { recursive: true });
+          }
+        };
+
+        const cleanupOldReports = (maxAgeDays = 30) => {
+          try {
+            ensureReportsDir();
+            const files = fs.readdirSync(reportsDir);
+            const now = Date.now();
+            const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+
+            for (const file of files) {
+              const filePath = path.join(reportsDir, file);
+              try {
+                const stats = fs.statSync(filePath);
+                if (!stats.isFile()) continue;
+
+                let ageMs = now - stats.mtimeMs;
+                const match = file.match(/timing-report-(\d{4}-\d{2}-\d{2})/);
+                if (match) {
+                  const fileDate = new Date(match[1]).getTime();
+                  if (!isNaN(fileDate)) {
+                    ageMs = Math.max(ageMs, now - fileDate);
+                  }
+                }
+
+                if (ageMs > maxAgeMs) {
+                  fs.unlinkSync(filePath);
+                  console.log(`[vite] Cleaned up timing report older than 30 days: ${file}`);
+                }
+              } catch {}
+            }
+          } catch {}
+        };
+
+        const getTodayReportDate = () => {
+          const d = new Date();
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        };
+
+        if (req.url === '/api/timing-reports/today' && req.method === 'GET') {
+          ensureReportsDir();
+          cleanupOldReports(30);
+          const dateStr = getTodayReportDate();
+          const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+          if (fs.existsSync(jsonPath)) {
+            try {
+              const data = fs.readFileSync(jsonPath, 'utf8');
+              res.setHeader('Content-Type', 'application/json');
+              res.end(data);
+              return;
+            } catch {}
+          }
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify([]));
+          return;
+        }
+
+        if (req.url === '/api/timing-reports' && req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk) => {
+            body += chunk;
+          });
+          req.on('end', () => {
+            try {
+              const entry = JSON.parse(body);
+              if (entry && entry.eventType) {
+                ensureReportsDir();
+                cleanupOldReports(30);
+
+                const dateStr = getTodayReportDate();
+                const logPath = path.join(reportsDir, `timing-report-${dateStr}.log`);
+                const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+
+                const timeStr = entry.timeFormatted || new Date(entry.timestamp || Date.now()).toLocaleTimeString();
+                const planned = entry.plannedDurationSeconds ? ` | Planned: ${entry.plannedDurationSeconds}s` : '';
+                const actual = entry.actualDurationSeconds ? ` | Actual: ${entry.actualDurationSeconds}s` : '';
+                const overtime = entry.overtimeSeconds ? ` | Overtime: +${entry.overtimeSeconds}s` : '';
+                const notes = entry.notes ? ` | Notes: "${entry.notes}"` : '';
+                const logLine = `[${dateStr} ${timeStr}] [${entry.eventType}] Label: "${entry.label || 'Live Timer'}"${planned}${actual}${overtime}${notes}\n`;
+
+                fs.appendFileSync(logPath, logLine, 'utf8');
+
+                let jsonEntries: any[] = [];
+                if (fs.existsSync(jsonPath)) {
+                  try {
+                    jsonEntries = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                    if (!Array.isArray(jsonEntries)) jsonEntries = [];
+                  } catch {}
+                }
+                jsonEntries = [entry, ...jsonEntries.filter((e: any) => e.id !== entry.id)].slice(0, 500);
+                fs.writeFileSync(jsonPath, JSON.stringify(jsonEntries, null, 2), 'utf8');
+
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: true, logPath, jsonPath }));
+                return;
+              }
+            } catch (err: any) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: err.message }));
+              return;
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false }));
+          });
+          return;
+        }
+
+        if (req.url === '/api/timing-reports/clear' && req.method === 'POST') {
+          ensureReportsDir();
+          const dateStr = getTodayReportDate();
+          const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+          const logPath = path.join(reportsDir, `timing-report-${dateStr}.log`);
+
+          if (fs.existsSync(jsonPath)) {
+            fs.writeFileSync(jsonPath, JSON.stringify([], null, 2), 'utf8');
+          }
+          const auditLine = `[${dateStr} ${new Date().toLocaleTimeString()}] [AUDIT] Timing report cleared by operator\n`;
+          fs.appendFileSync(logPath, auditLine, 'utf8');
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true }));
+          return;
+        }
+
+        if (req.url === '/api/timing-reports/open' && req.method === 'POST') {
+          ensureReportsDir();
+          const cmd = process.platform === 'win32' ? `start "" "${reportsDir}"` : process.platform === 'darwin' ? `open "${reportsDir}"` : `xdg-open "${reportsDir}"`;
+          import('child_process').then(({ exec }) => {
+            exec(cmd, () => {});
+          });
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true, folder: reportsDir }));
+          return;
         }
 
         if (req.url === '/api/state') {

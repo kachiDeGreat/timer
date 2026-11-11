@@ -478,7 +478,6 @@ ipcMain.handle('get-settings', () => {
     autoAdvanceMode: 'manual',
     upNextTriggerSeconds: 60,
     colorScheme: 'white',
-    timerQueue: [],
   };
 });
 
@@ -491,8 +490,213 @@ ipcMain.handle('save-settings', (_event, newSettings) => {
       current = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
     const updated = { ...current, ...newSettings };
+    delete updated.timerQueue;
     fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2), 'utf8');
     return { success: true, settings: updated };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('get-queue', () => {
+  const fs = require('fs');
+  const queuePath = path.join(__dirname, '../queue.json');
+  try {
+    if (fs.existsSync(queuePath)) {
+      return JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+    }
+  } catch {}
+  return [];
+});
+
+ipcMain.handle('save-queue', (_event, queue) => {
+  const fs = require('fs');
+  const queuePath = path.join(__dirname, '../queue.json');
+  try {
+    const list = Array.isArray(queue) ? queue : [];
+    fs.writeFileSync(queuePath, JSON.stringify(list, null, 2), 'utf8');
+    return { success: true, queue: list };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('export-queue-dialog', async (_event, queueData) => {
+  const fs = require('fs');
+  const { dialog } = require('electron');
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Timing Queue Playlist',
+      defaultPath: 'stagetimer-queue.json',
+      filters: [
+        { name: 'JSON Playlist (*.json)', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (!result.canceled && result.filePath) {
+      fs.writeFileSync(result.filePath, JSON.stringify(queueData || [], null, 2), 'utf8');
+      return { success: true, filePath: result.filePath };
+    }
+    return { canceled: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('import-queue-dialog', async () => {
+  const fs = require('fs');
+  const { dialog } = require('electron');
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Timing Queue Playlist',
+      filters: [
+        { name: 'JSON Playlist (*.json)', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+      const queueList = Array.isArray(data) ? data : (data.timerQueue || []);
+      return { success: true, queue: queueList, filePath: result.filePaths[0] };
+    }
+    return { canceled: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// =========================================================
+// TIMING REPORTS LOG MANAGER (30-DAY RETENTION)
+// =========================================================
+const reportsDir = path.join(__dirname, '../timing_reports');
+
+function ensureTimingReportsDir() {
+  if (!fs.existsSync(reportsDir)) {
+    fs.mkdirSync(reportsDir, { recursive: true });
+  }
+}
+
+function cleanupExpiredTimingReports(maxAgeDays = 30) {
+  try {
+    ensureTimingReportsDir();
+    const files = fs.readdirSync(reportsDir);
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+
+    for (const file of files) {
+      const filePath = path.join(reportsDir, file);
+      try {
+        const stats = fs.statSync(filePath);
+        if (!stats.isFile()) continue;
+
+        let ageMs = now - stats.mtimeMs;
+        const match = file.match(/timing-report-(\d{4}-\d{2}-\d{2})/);
+        if (match) {
+          const fileDate = new Date(match[1]).getTime();
+          if (!isNaN(fileDate)) {
+            ageMs = Math.max(ageMs, now - fileDate);
+          }
+        }
+
+        if (ageMs > maxAgeMs) {
+          fs.unlinkSync(filePath);
+          console.log(`[TimingReports] Cleaned up report file older than 30 days: ${file}`);
+        }
+      } catch (err) {
+        console.warn(`[TimingReports] Check error for ${file}:`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[TimingReports] Cleanup error:', err);
+  }
+}
+
+function getTodayReportDate() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Initial 30-day cleanup on startup
+cleanupExpiredTimingReports(30);
+
+ipcMain.handle('save-timing-report-entry', (_event, entry) => {
+  if (!entry || !entry.eventType) return { success: false };
+  try {
+    ensureTimingReportsDir();
+    cleanupExpiredTimingReports(30);
+
+    const dateStr = getTodayReportDate();
+    const logPath = path.join(reportsDir, `timing-report-${dateStr}.log`);
+    const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+
+    // Human-readable log line
+    const timeStr = entry.timeFormatted || new Date(entry.timestamp || Date.now()).toLocaleTimeString();
+    const planned = entry.plannedDurationSeconds ? ` | Planned: ${entry.plannedDurationSeconds}s` : '';
+    const actual = entry.actualDurationSeconds ? ` | Actual: ${entry.actualDurationSeconds}s` : '';
+    const overtime = entry.overtimeSeconds ? ` | Overtime: +${entry.overtimeSeconds}s` : '';
+    const notes = entry.notes ? ` | Notes: "${entry.notes}"` : '';
+    const logLine = `[${dateStr} ${timeStr}] [${entry.eventType}] Label: "${entry.label || 'Live Timer'}"${planned}${actual}${overtime}${notes}\n`;
+
+    fs.appendFileSync(logPath, logLine, 'utf8');
+
+    // JSON daily record for today
+    let jsonEntries = [];
+    if (fs.existsSync(jsonPath)) {
+      try {
+        jsonEntries = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        if (!Array.isArray(jsonEntries)) jsonEntries = [];
+      } catch {}
+    }
+    jsonEntries = [entry, ...jsonEntries.filter(e => e.id !== entry.id)].slice(0, 500);
+    fs.writeFileSync(jsonPath, JSON.stringify(jsonEntries, null, 2), 'utf8');
+
+    return { success: true, logPath, jsonPath };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('get-today-timing-report', () => {
+  try {
+    ensureTimingReportsDir();
+    const dateStr = getTodayReportDate();
+    const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+    if (fs.existsSync(jsonPath)) {
+      return JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    }
+  } catch {}
+  return [];
+});
+
+ipcMain.handle('clear-timing-reports', () => {
+  try {
+    ensureTimingReportsDir();
+    const dateStr = getTodayReportDate();
+    const jsonPath = path.join(reportsDir, `timing-report-${dateStr}.json`);
+    const logPath = path.join(reportsDir, `timing-report-${dateStr}.log`);
+
+    if (fs.existsSync(jsonPath)) {
+      fs.writeFileSync(jsonPath, JSON.stringify([], null, 2), 'utf8');
+    }
+    const auditLine = `[${dateStr} ${new Date().toLocaleTimeString()}] [AUDIT] Timing report cleared by operator\n`;
+    fs.appendFileSync(logPath, auditLine, 'utf8');
+
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('open-timing-reports-folder', async () => {
+  const { shell } = require('electron');
+  try {
+    ensureTimingReportsDir();
+    await shell.openPath(reportsDir);
+    return { success: true, folder: reportsDir };
   } catch (err) {
     return { error: err.message };
   }
